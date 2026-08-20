@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+
+{% block title %}Падения цен — Avito Data Terminal{% endblock %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto space-y-5">
+
+  <!-- Header -->
+  <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-2 border-b border-white/[0.06]">
+    <div>
+      <div class="flex items-center gap-2.5">
+        <h1 class="text-xl font-bold text-white tracking-tight">Трекер Скидок и Падений Цен</h1>
+        <span class="text-xs font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" id="drops-total-badge">
+          0 событий
+        </span>
+      </div>
+      <p class="text-slate-400 text-xs mt-0.5">История и аналитика зафиксированных снижений цен на товары из мониторинга</p>
+    </div>
+  </div>
+
+  <!-- DROPS LIST -->
+  <div class="panel-card p-4 space-y-3">
+    <div class="flex items-center justify-between pb-2.5 border-b border-white/[0.06]">
+      <h3 class="text-xs font-bold text-white uppercase tracking-wider font-mono">Журнал Изменений Стоимости</h3>
+      <span id="drops-total-count" class="text-[11px] text-slate-500 font-mono">Всего: 0</span>
+    </div>
+
+    <div class="overflow-x-auto">
+      <table class="w-full text-left text-xs">
+        <thead>
+          <tr class="text-slate-500 font-mono text-[10px] uppercase tracking-wider border-b border-white/[0.06] pb-2">
+            <th class="py-2.5 px-3">Товар & Локация</th>
+            <th class="py-2.5 px-3">Новая цена</th>
+            <th class="py-2.5 px-3">Старая цена</th>
+            <th class="py-2.5 px-3">Дисконт</th>
+            <th class="py-2.5 px-3">Дата фиксации</th>
+            <th class="py-2.5 px-3 text-right">Ссылка</th>
+          </tr>
+        </thead>
+        <tbody id="price-drops-tbody" class="divide-y divide-white/[0.04] text-slate-300">
+          <tr>
+            <td colspan="6" class="py-12 text-center text-slate-500 text-xs font-mono">Загрузка скидок...</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function loadPriceDrops() {
+  try {
+    const drops = await apiFetch('/api/price-drops?limit=100');
+    document.getElementById('drops-total-count').innerText = `Всего: ${drops.length}`;
+    const badge = document.getElementById('drops-total-badge');
+    if (badge) badge.innerText = `${drops.length} событий`;
+    
+    const tbody = document.getElementById('price-drops-tbody');
+    if (!drops || drops.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="6" class="py-12 text-center text-slate-500 text-xs font-mono">Снижений цен пока не зафиксировано. Воркер мониторинга сверяет цены в каждом цикле.</td></tr>`;
+      return;
+    }
+
+    tbody.innerHTML = drops.map(d => `
+      <tr class="hover:bg-white/[0.02] transition font-mono">
+        <td class="py-2.5 px-3">
+          <div class="flex items-center gap-2.5">
+            <img src="${d.main_image || '/static/img/no-image.svg'}" class="w-9 h-9 rounded object-cover bg-slate-950 border border-white/[0.06] flex-shrink-0" onerror="this.src='/static/img/no-image.svg'">
+            <div class="min-w-0 max-w-sm">
+              <div class="font-sans font-semibold text-slate-200 text-xs truncate" title="${d.title}">${d.title}</div>
+              <div class="text-[10px] text-slate-500 truncate mt-0.5">${d.address || d.metro || 'Локация не указана'}</div>
+            </div>
+          </div>
+        </td>
+        <td class="py-2.5 px-3 font-bold text-white text-xs">
+          ${formatPrice(d.new_price)}
+        </td>
+        <td class="py-2.5 px-3 text-slate-500 line-through text-[11px]">
+          ${formatPrice(d.old_price)}
+        </td>
+        <td class="py-2.5 px-3">
+          <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold price-drop-badge">
+            <span>-${d.discount_pct}%</span>
+            <span class="opacity-70 text-[9px]">(-${Math.abs(d.delta).toLocaleString('ru-RU')} ₽)</span>
+          </span>
+        </td>
+        <td class="py-2.5 px-3 text-slate-400 text-[11px] whitespace-nowrap">
+          ${formatDate(d.dropped_at)}
+        </td>
+        <td class="py-2.5 px-3 text-right whitespace-nowrap font-sans">
+          <a href="${d.url}" target="_blank" class="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-slate-900 hover:bg-slate-800 text-blue-400 border border-white/[0.08] text-xs font-medium transition">
+            <span>Авито</span>
+            <i data-lucide="external-link" class="w-3 h-3"></i>
+          </a>
+        </td>
+      </tr>
+    `).join('');
+
+    if (window.lucide) lucide.createIcons();
+
+  } catch (err) {
+    console.error('Error loading price drops:', err);
+  }
+}
+
+function initPriceDropsPage() {
+  loadPriceDrops();
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initPriceDropsPage);
+} else {
+  initPriceDropsPage();
+}
+</script>
+{% endblock %}

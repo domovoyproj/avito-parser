@@ -1,0 +1,388 @@
+{% extends "base.html" %}
+
+{% block title %}Парсер выдачи — Avito Data Terminal{% endblock %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto space-y-5">
+
+  <!-- Header -->
+  <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-2 border-b border-white/[0.06]">
+    <div>
+      <div class="flex items-center gap-2.5">
+        <h1 class="text-xl font-bold text-white tracking-tight">Парсер Поисковой Выдачи</h1>
+        <span class="text-xs font-mono px-2 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20">
+          MULTI-PAGE SCRAPER
+        </span>
+      </div>
+      <p class="text-slate-400 text-xs mt-0.5">Сбор данных по ссылке, извлечение цен, характеристик и экспорт в Excel/CSV/JSON</p>
+    </div>
+  </div>
+
+  <!-- CONTROL & FORM PANEL -->
+  <div class="panel-card p-5 space-y-4">
+    
+    <form id="parser-form" onsubmit="startParsing(event)" class="space-y-4">
+      <!-- URL Input -->
+      <div>
+        <label class="block text-[11px] font-semibold text-slate-300 mb-1 font-mono">
+          Ссылка на поиск Авито <span class="text-rose-400">*</span>
+        </label>
+        <div class="relative">
+          <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-500">
+            <i data-lucide="link" class="w-3.5 h-3.5"></i>
+          </div>
+          <input 
+            type="url" 
+            id="parser-url" 
+            required 
+            placeholder="https://www.avito.ru/moskva/telefony/iphone_15-ASgBAgICAURMyg3smjg..." 
+            class="w-full app-input pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none font-mono"
+          >
+        </div>
+        <p class="text-[10px] text-slate-500 mt-1 font-mono">Вставьте ссылку из браузера с любыми фильтрами и параметрами</p>
+      </div>
+
+      <!-- Settings Grid -->
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-1">
+        
+        <!-- Max Pages -->
+        <div>
+          <label class="block text-[11px] font-semibold text-slate-400 mb-1 font-mono">Глубина страниц</label>
+          <input 
+            type="number" 
+            id="parser-max-pages" 
+            min="1" 
+            max="50" 
+            value="2" 
+            class="w-full app-input px-3 py-1.5 text-xs text-white focus:outline-none font-mono text-center"
+          >
+        </div>
+
+        <!-- Engine selector -->
+        <div>
+          <label class="block text-[11px] font-semibold text-slate-400 mb-1 font-mono">Движок парсера</label>
+          <select 
+            id="parser-engine" 
+            class="w-full app-input px-3 py-1.5 text-xs text-slate-200 focus:outline-none font-mono"
+          >
+            <option value="playwright" selected>Playwright Stealth (Рекомендуется)</option>
+            <option value="http">Fast HTTP (curl_cffi Chrome)</option>
+          </select>
+        </div>
+
+        <!-- Headless Mode -->
+        <div>
+          <label class="block text-[11px] font-semibold text-slate-400 mb-1 font-mono">Режим браузера</label>
+          <select 
+            id="parser-headless" 
+            class="w-full app-input px-3 py-1.5 text-xs text-slate-200 focus:outline-none font-mono"
+          >
+            <option value="true" selected>Headless (Фоновый)</option>
+            <option value="false">Видимое окно (для капчи)</option>
+          </select>
+        </div>
+
+        <!-- Save to DB -->
+        <div class="flex items-center gap-2 pt-5">
+          <label class="relative flex items-center gap-2 cursor-pointer select-none">
+            <input type="checkbox" id="parser-save-db" checked class="w-3.5 h-3.5 text-blue-600 rounded bg-slate-900 border-slate-700">
+            <span class="text-xs text-slate-300">Сохранять в базу</span>
+          </label>
+        </div>
+
+      </div>
+
+      <!-- Action Buttons -->
+      <div class="pt-2 flex items-center gap-2.5">
+        <button 
+          type="submit" 
+          id="btn-start-parse" 
+          class="px-4 py-2 rounded-lg text-xs font-semibold bg-blue-600 hover:bg-blue-500 text-white transition flex items-center gap-2 shadow-sm"
+        >
+          <i data-lucide="play" class="w-3.5 h-3.5"></i>
+          <span>Запустить сбор</span>
+        </button>
+
+        <button 
+          type="button" 
+          onclick="addAsMonitoredSearch()" 
+          class="px-3.5 py-2 rounded-lg text-xs font-semibold bg-slate-900 hover:bg-slate-800 text-slate-300 border border-white/[0.08] transition flex items-center gap-1.5"
+        >
+          <i data-lucide="plus" class="w-3.5 h-3.5 text-blue-400"></i>
+          <span>Добавить в мониторинг</span>
+        </button>
+      </div>
+
+    </form>
+
+  </div>
+
+  <!-- PROGRESS & LIVE TERMINAL LOGS -->
+  <div id="live-progress-panel" class="hidden panel-card p-4 space-y-3">
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+      <div class="flex items-center gap-2.5">
+        <div class="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></div>
+        <span class="font-bold text-xs text-white font-mono" id="live-status-text">Идет сбор данных...</span>
+      </div>
+      <div class="flex items-center gap-4 text-xs text-slate-400 font-mono">
+        <div>Страница: <span id="live-page-val" class="font-bold text-white">0</span></div>
+        <div>Найдено: <span id="live-items-val" class="font-bold text-emerald-400">0</span></div>
+        <div>Время: <span id="live-timer-val" class="font-bold text-white">0s</span></div>
+      </div>
+    </div>
+
+    <!-- Progress Bar -->
+    <div class="w-full bg-slate-950 rounded-full h-1.5 overflow-hidden border border-white/[0.06]">
+      <div id="live-progress-bar" class="bg-blue-600 h-1.5 rounded-full transition-all duration-300" style="width: 0%"></div>
+    </div>
+
+    <!-- Terminal Output -->
+    <div class="terminal-window rounded-lg p-3 text-[11px] text-slate-300 max-h-44 overflow-y-auto font-mono space-y-1" id="live-terminal-logs">
+      <div class="text-slate-500">// Терминал сессии...</div>
+    </div>
+  </div>
+
+  <!-- RESULTS SECTION -->
+  <div id="results-panel" class="hidden panel-card p-4 space-y-4">
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-3 border-b border-white/[0.06]">
+      <div>
+        <div class="flex items-center gap-2">
+          <h3 class="text-sm font-bold text-white">Результаты сбора</h3>
+          <span id="results-count-badge" class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">0 товаров</span>
+        </div>
+        <p class="text-[11px] text-slate-400 mt-0.5 font-mono" id="results-summary-text">Сбор завершен</p>
+      </div>
+
+      <!-- Export Buttons -->
+      <div class="flex items-center gap-1.5">
+        <a id="btn-export-excel" href="/api/export/excel" class="px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-medium transition flex items-center gap-1">
+          <i data-lucide="file-spreadsheet" class="w-3 h-3"></i>
+          <span>Excel</span>
+        </a>
+        <a id="btn-export-csv" href="/api/export/csv" class="px-2.5 py-1 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 border border-white/[0.08] text-xs font-medium transition flex items-center gap-1">
+          <i data-lucide="file-text" class="w-3 h-3"></i>
+          <span>CSV</span>
+        </a>
+        <a id="btn-export-json" href="/api/export/json" class="px-2.5 py-1 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 border border-white/[0.08] text-xs font-medium transition flex items-center gap-1">
+          <i data-lucide="file-code" class="w-3 h-3"></i>
+          <span>JSON</span>
+        </a>
+      </div>
+    </div>
+
+    <!-- Results Table -->
+    <div class="overflow-x-auto">
+      <table class="w-full text-left text-xs">
+        <thead>
+          <tr class="text-slate-500 font-mono text-[10px] uppercase tracking-wider border-b border-white/[0.06] pb-2">
+            <th class="py-2.5 px-3">Фото & Заголовок</th>
+            <th class="py-2.5 px-3">Цена</th>
+            <th class="py-2.5 px-3">Локация</th>
+            <th class="py-2.5 px-3">Продавец</th>
+            <th class="py-2.5 px-3">Доставка</th>
+            <th class="py-2.5 px-3 text-right">Ссылка</th>
+          </tr>
+        </thead>
+        <tbody id="results-tbody" class="divide-y divide-white/[0.04] text-slate-300">
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let currentWs = null;
+let timerInterval = null;
+let startTime = 0;
+
+async function startParsing(e) {
+  e.preventDefault();
+  const url = document.getElementById('parser-url').value.trim();
+  const maxPages = parseInt(document.getElementById('parser-max-pages').value) || 2;
+  const engine = document.getElementById('parser-engine').value;
+  const headless = document.getElementById('parser-headless').value === 'true';
+  const saveDb = document.getElementById('parser-save-db').checked;
+
+  if (!url) {
+    showToast('Введите ссылку на Авито', 'warning');
+    return;
+  }
+
+  const btn = document.getElementById('btn-start-parse');
+  btn.disabled = true;
+  btn.classList.add('opacity-50', 'cursor-not-allowed');
+
+  const progPanel = document.getElementById('live-progress-panel');
+  progPanel.classList.remove('hidden');
+  document.getElementById('results-panel').classList.add('hidden');
+
+  const logsEl = document.getElementById('live-terminal-logs');
+  logsEl.innerHTML = '<div class="text-blue-400 font-mono">> Инициализация задачи парсинга...</div>';
+
+  document.getElementById('live-progress-bar').style.width = '5%';
+  document.getElementById('live-page-val').innerText = `1 / ${maxPages}`;
+  document.getElementById('live-items-val').innerText = '0';
+  document.getElementById('live-status-text').innerText = 'Запуск движка...';
+
+  startTime = Date.now();
+  if (timerInterval) clearInterval(timerInterval);
+  timerInterval = setInterval(() => {
+    const elSec = Math.floor((Date.now() - startTime) / 1000);
+    document.getElementById('live-timer-val').innerText = `${elSec}s`;
+  }, 500);
+
+  try {
+    const res = await apiFetch('/api/parser/start', {
+      method: 'POST',
+      body: JSON.stringify({
+        url: url,
+        max_pages: maxPages,
+        engine: engine,
+        save_to_db: saveDb,
+        headless: headless
+      })
+    });
+
+    const jobId = res.job_id;
+    connectWs(jobId);
+
+  } catch (err) {
+    showToast(err.message, 'error');
+    btn.disabled = false;
+    btn.classList.remove('opacity-50', 'cursor-not-allowed');
+    clearInterval(timerInterval);
+  }
+}
+
+function connectWs(jobId) {
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const wsUrl = `${protocol}//${window.location.host}/ws/parser/${jobId}`;
+
+  if (currentWs) {
+    try { currentWs.close(); } catch(e) {}
+  }
+
+  currentWs = new WebSocket(wsUrl);
+  const logsEl = document.getElementById('live-terminal-logs');
+
+  currentWs.onmessage = (event) => {
+    const msg = JSON.parse(event.data);
+    
+    if (msg.type === 'log') {
+      const line = document.createElement('div');
+      line.className = 'text-slate-300 font-mono';
+      line.innerText = `> ${msg.data}`;
+      logsEl.appendChild(line);
+      logsEl.scrollTop = logsEl.scrollHeight;
+    } else if (msg.type === 'progress') {
+      document.getElementById('live-progress-bar').style.width = `${msg.data.progress_pct}%`;
+      document.getElementById('live-page-val').innerText = `${msg.data.current_page}`;
+      document.getElementById('live-items-val').innerText = `${msg.data.items_found}`;
+    } else if (msg.type === 'complete') {
+      clearInterval(timerInterval);
+      document.getElementById('live-progress-bar').style.width = '100%';
+      document.getElementById('live-status-text').innerText = 'Парсинг успешно завершен';
+      
+      const btn = document.getElementById('btn-start-parse');
+      btn.disabled = false;
+      btn.classList.remove('opacity-50', 'cursor-not-allowed');
+
+      renderResults(msg.data);
+      showToast(`Собрано ${msg.data.total_found} объявлений`, 'success');
+    } else if (msg.type === 'error') {
+      clearInterval(timerInterval);
+      document.getElementById('live-status-text').innerText = 'Ошибка парсинга';
+      showToast(msg.data, 'error');
+      const btn = document.getElementById('btn-start-parse');
+      btn.disabled = false;
+      btn.classList.remove('opacity-50', 'cursor-not-allowed');
+    }
+  };
+
+  currentWs.onerror = (e) => {
+    console.error('WebSocket Error:', e);
+  };
+}
+
+function renderResults(data) {
+  const panel = document.getElementById('results-panel');
+  panel.classList.remove('hidden');
+
+  document.getElementById('results-count-badge').innerText = `${data.total_found} товаров`;
+  document.getElementById('results-summary-text').innerText = `Завершено за ${data.elapsed_sec} сек. Новых: ${data.new_items_count}, падений цен: ${data.price_dropped_count}`;
+
+  const tbody = document.getElementById('results-tbody');
+  if (!data.items || data.items.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="6" class="py-8 text-center text-slate-500 font-mono">Объявления не найдены</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = data.items.map(item => `
+    <tr class="hover:bg-white/[0.02] transition font-mono">
+      <td class="py-2.5 px-3">
+        <div class="flex items-center gap-2.5">
+          <img src="${item.main_image || '/static/img/no-image.svg'}" class="w-9 h-9 rounded object-cover bg-slate-950 border border-white/[0.06] flex-shrink-0" onerror="this.src='/static/img/no-image.svg'">
+          <div class="min-w-0 max-w-sm">
+            <div class="font-sans font-semibold text-slate-200 text-xs truncate" title="${item.title}">${item.title}</div>
+            <div class="text-[10px] text-slate-500">ID: ${item.id}</div>
+          </div>
+        </div>
+      </td>
+      <td class="py-2.5 px-3 font-bold text-white text-xs">
+        ${formatPrice(item.price)}
+      </td>
+      <td class="py-2.5 px-3 text-slate-400 text-[11px]">
+        <div>${item.address || '—'}</div>
+        ${item.metro ? `<div class="text-[10px] text-slate-500">м. ${item.metro}</div>` : ''}
+      </td>
+      <td class="py-2.5 px-3 text-xs font-sans">
+        <div class="text-slate-200">${item.seller ? (item.seller.name || '—') : '—'}</div>
+        ${item.seller && item.seller.rating ? `<div class="text-[10px] text-amber-400 font-mono">★ ${item.seller.rating} (${item.seller.reviews_count || 0})</div>` : ''}
+      </td>
+      <td class="py-2.5 px-3 font-sans">
+        ${item.delivery_available ? `
+          <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-blue-500/20 text-blue-300 border border-blue-500/30">ДОСТАВКА</span>
+        ` : `<span class="text-slate-600 text-[11px]">Нет</span>`}
+      </td>
+      <td class="py-2.5 px-3 text-right font-sans">
+        <a href="${item.url}" target="_blank" class="inline-flex items-center gap-1 text-xs font-medium text-blue-400 hover:text-blue-300">
+          <span>Авито</span>
+          <i data-lucide="external-link" class="w-3 h-3"></i>
+        </a>
+      </td>
+    </tr>
+  `).join('');
+
+  if (window.lucide) lucide.createIcons();
+}
+
+async function addAsMonitoredSearch() {
+  const url = document.getElementById('parser-url').value.trim();
+  if (!url) {
+    showToast('Сначала введите ссылку на Авито', 'warning');
+    return;
+  }
+
+  const name = prompt('Введите название задачи мониторинга:', 'Поиск Авито');
+  if (!name) return;
+
+  try {
+    await apiFetch('/api/searches', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: name,
+        url: url,
+        check_interval_min: 10,
+        enabled: true
+      })
+    });
+    showToast(`Задача "${name}" добавлена в мониторинг!`, 'success');
+  } catch (e) {
+    showToast(e.message, 'error');
+  }
+}
+</script>
+{% endblock %}

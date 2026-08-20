@@ -1,0 +1,1048 @@
+{% extends "base.html" %}
+
+{% block title %}Каталог Объявлений — Avito Data Terminal{% endblock %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto space-y-5">
+
+  <!-- Header & Exports -->
+  <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-2 border-b border-white/[0.06]">
+    <div>
+      <div class="flex items-center gap-2.5">
+        <h1 class="text-xl font-bold text-white tracking-tight">Каталог Объявлений</h1>
+        <span class="text-xs font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-400 border border-white/[0.06]" id="pag-total-badge">
+          0 позиций
+        </span>
+      </div>
+      <p class="text-slate-400 text-xs mt-0.5">Фильтрация, мультиселект, аналитика цен и экспорт всей базы</p>
+    </div>
+
+    <!-- Export Actions -->
+    <div class="flex items-center gap-2">
+      <button onclick="exportData('excel')" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-[#111] hover:bg-[#222] text-slate-200 border border-[#333] transition flex items-center gap-1.5 shadow-sm">
+        <i data-lucide="file-spreadsheet" class="w-3.5 h-3.5"></i>
+        <span>Excel</span>
+      </button>
+      <button onclick="exportData('html')" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-[#111] hover:bg-[#222] text-slate-200 border border-[#333] transition flex items-center gap-1.5 shadow-sm">
+        <i data-lucide="layout" class="w-3.5 h-3.5"></i>
+        <span>HTML отчет</span>
+      </button>
+      <button onclick="exportData('csv')" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-[#111] hover:bg-[#222] text-slate-200 border border-[#333] transition flex items-center gap-1.5">
+        <i data-lucide="file-text" class="w-3.5 h-3.5 text-slate-400"></i>
+        <span>CSV</span>
+      </button>
+      <button onclick="exportData('json')" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-[#111] hover:bg-[#222] text-slate-200 border border-[#333] transition flex items-center gap-1.5">
+        <i data-lucide="file-code" class="w-3.5 h-3.5 text-slate-400"></i>
+        <span>JSON</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- FILTERS & SEARCH TOOLBAR -->
+  <div class="panel-card p-4 space-y-3.5">
+    
+    <!-- Top Row: Search & Filters -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-3">
+      
+      <!-- Text search (5 cols) -->
+      <div class="lg:col-span-5 relative">
+        <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-500">
+          <i data-lucide="search" class="w-3.5 h-3.5"></i>
+        </div>
+        <input 
+          type="text" 
+          id="filter-query" 
+          placeholder="Поиск по названию, адресу, параметрам..." 
+          oninput="debounceSearch()"
+          class="w-full app-input pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none"
+        >
+      </div>
+
+      <!-- Search Query Select (3 cols) -->
+      <div class="lg:col-span-3">
+        <select 
+          id="filter-search-id" 
+          onchange="loadItems(1)"
+          class="w-full app-input px-3 py-2 text-xs text-slate-200 focus:outline-none font-mono"
+        >
+          <option value="">Все задачи поиска</option>
+        </select>
+      </div>
+
+      <!-- Sort By (2 cols) -->
+      <div class="lg:col-span-2">
+        <select 
+          id="filter-sort-by" 
+          onchange="loadItems(1)"
+          class="w-full app-input px-3 py-2 text-xs text-slate-200 focus:outline-none"
+        >
+          <option value="deal_score_desc" selected>💎 По AI Score (Лучшие)</option>
+          <option value="newest">Сначала новые</option>
+          <option value="oldest">Сначала старые</option>
+          <option value="price_asc">Цена: по возрастанию</option>
+          <option value="price_desc">Цена: по убыванию</option>
+          <option value="discount_desc">По размеру скидки</option>
+        </select>
+      </div>
+
+      <!-- View Switcher (2 cols) -->
+      <div class="lg:col-span-2 flex items-center justify-end gap-1 bg-[#111] p-1 rounded-lg border border-[#222]">
+        <button onclick="setViewMode('grid')" id="btn-view-grid" class="flex-1 py-1 rounded text-xs font-semibold flex items-center justify-center gap-1.5 transition bg-white text-black shadow-sm">
+          <i data-lucide="layout-grid" class="w-3.5 h-3.5"></i>
+          <span>Сетка</span>
+        </button>
+        <button onclick="setViewMode('table')" id="btn-view-table" class="flex-1 py-1 rounded text-xs font-semibold flex items-center justify-center gap-1.5 transition text-slate-400 hover:text-white">
+          <i data-lucide="list" class="w-3.5 h-3.5"></i>
+          <span>Список</span>
+        </button>
+      </div>
+
+    </div>
+
+    <!-- Bottom Row: Price Range & Toggles -->
+    <div class="flex flex-wrap items-center justify-between gap-3 pt-2.5 border-t border-white/[0.04] text-xs">
+      
+      <div class="flex flex-wrap items-center gap-3">
+        <!-- Min Price -->
+        <div class="flex items-center gap-1.5 font-mono">
+          <span class="text-slate-500 text-[11px]">Цена от:</span>
+          <input 
+            type="number" 
+            id="filter-min-price" 
+            placeholder="0" 
+            onchange="loadItems(1)"
+            class="w-24 app-input px-2.5 py-1 text-xs text-white text-right font-mono"
+          >
+          <span class="text-slate-500 text-[11px]">₽</span>
+        </div>
+
+        <!-- Max Price -->
+        <div class="flex items-center gap-1.5 font-mono">
+          <span class="text-slate-500 text-[11px]">до:</span>
+          <input 
+            type="number" 
+            id="filter-max-price" 
+            placeholder="Макс" 
+            onchange="loadItems(1)"
+            class="w-28 app-input px-2.5 py-1 text-xs text-white text-right font-mono"
+          >
+          <span class="text-slate-500 text-[11px]">₽</span>
+        </div>
+        <!-- Filter: Deal Grade -->
+        <div class="flex items-center gap-1.5 font-mono ml-1">
+          <span class="text-slate-500 text-[11px]">AI Оценка:</span>
+          <select id="filter-deal-grade" onchange="loadItems(1)" class="app-input px-2.5 py-1 text-xs text-slate-200 focus:outline-none font-mono">
+            <option value="">Все оценки</option>
+            <option value="GEM">💎 Только GEM (85+)</option>
+            <option value="HOT">🔥 GEM & HOT (70+)</option>
+            <option value="FAIR">⚖️ FAIR и выше (50+)</option>
+            <option value="CAUTION">⚠️ CAUTION (&lt;50)</option>
+          </select>
+        </div>
+
+        <!-- Checkbox: Favorites only -->
+        <label class="flex items-center gap-1.5 cursor-pointer select-none text-slate-300 ml-1">
+          <input type="checkbox" id="filter-favorites-only" onchange="loadItems(1)" class="w-3.5 h-3.5 text-amber-500 rounded bg-slate-900 border-slate-700">
+          <span class="text-[11px]">⭐ Избранное</span>
+        </label>
+
+        <!-- Checkbox: Discounts only -->
+        <label class="flex items-center gap-1.5 cursor-pointer select-none text-slate-300 ml-1">
+          <input type="checkbox" id="filter-discount-only" onchange="loadItems(1)" class="w-3.5 h-3.5 text-blue-600 rounded bg-slate-900 border-slate-700">
+          <span class="text-[11px]">📉 Со скидкой</span>
+        </label>
+
+        <!-- Checkbox: Delivery only -->
+        <label class="flex items-center gap-1.5 cursor-pointer select-none text-slate-300 ml-1">
+          <input type="checkbox" id="filter-delivery-only" onchange="loadItems(1)" class="w-3.5 h-3.5 text-blue-600 rounded bg-slate-900 border-slate-700">
+          <span class="text-[11px]">Авито Доставка</span>
+        </label>
+
+        <!-- Checkbox: Hide Reserved -->
+        <label class="flex items-center gap-1.5 cursor-pointer select-none text-slate-300 ml-1" title="Скрыть товары, которые уже оформлены в доставку другим покупателем">
+          <input type="checkbox" id="filter-hide-reserved" checked onchange="loadItems(1)" class="w-3.5 h-3.5 text-amber-500 rounded bg-slate-900 border-slate-700">
+          <span class="text-[11px]">🔒 Скрыть зарезервированные</span>
+        </label>
+      </div>
+
+      <!-- Batch Actions & Recalculate -->
+      <div class="flex items-center gap-3">
+        <button onclick="recalculateAllScores()" id="btn-recalc-scores" class="text-blue-400 hover:text-blue-300 text-[11px] font-medium flex items-center gap-1 transition">
+          <i data-lucide="sparkles" class="w-3 h-3 text-blue-400"></i>
+          <span>Пересчитать AI Score</span>
+        </button>
+        <button onclick="clearAllDatabase()" class="text-rose-400/80 hover:text-rose-300 text-[11px] font-medium flex items-center gap-1 transition">
+          <i data-lucide="trash-2" class="w-3 h-3"></i>
+          <span>Очистить базу</span>
+        </button>
+      </div>
+
+  </div>
+
+  <!-- FLOATING BATCH ACTION BAR -->
+  <div id="batch-action-bar" class="hidden panel-card p-3 border border-blue-500/30 flex items-center justify-between gap-4 bg-slate-900/90 shadow-xl">
+    <div class="flex items-center gap-2 font-mono text-xs text-slate-300">
+      <span>Выбрано элементов: <strong id="batch-selected-count" class="text-white">0</strong></span>
+    </div>
+    <div class="flex items-center gap-2">
+      <button onclick="executeBatchAction('favorite')" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-amber-300 border border-white/[0.08] text-xs font-medium transition flex items-center gap-1">
+        <i data-lucide="star" class="w-3.5 h-3.5"></i>
+        <span>В избранное</span>
+      </button>
+      <button onclick="executeBatchAction('delete')" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-rose-500/20 text-rose-300 border border-white/[0.08] text-xs font-medium transition flex items-center gap-1">
+        <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+        <span>Удалить выбранные</span>
+      </button>
+      <button onclick="clearSelection()" class="px-2.5 py-1 rounded text-slate-400 hover:text-white text-xs font-medium transition">
+        Отменить выбор
+      </button>
+    </div>
+  </div>
+
+  <!-- ITEMS CONTAINER (GRID VIEW) -->
+  <div id="items-grid-container" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+    <div class="col-span-full py-16 text-center text-slate-500 text-xs font-mono">Загрузка объявлений...</div>
+  </div>
+
+  <!-- ITEMS CONTAINER (TABLE VIEW) -->
+  <div id="items-table-container" class="hidden panel-card p-4 overflow-hidden">
+    <div class="overflow-x-auto">
+      <table class="w-full text-left text-xs font-mono">
+        <thead>
+          <tr class="text-slate-500 text-[10px] uppercase tracking-wider border-b border-white/[0.06] pb-2">
+            <th class="py-2.5 px-3 w-8">
+              <input type="checkbox" id="select-all-table" onchange="toggleSelectAllTable(this)" class="w-3.5 h-3.5 rounded bg-slate-900 border-slate-700">
+            </th>
+            <th class="py-2.5 px-3">Фото & Заголовок</th>
+            <th class="py-2.5 px-3">Цена</th>
+            <th class="py-2.5 px-3">Динамика</th>
+            <th class="py-2.5 px-3">Локация</th>
+            <th class="py-2.5 px-3">Дата</th>
+            <th class="py-2.5 px-3 text-right">Действия</th>
+          </tr>
+        </thead>
+        <tbody id="items-table-tbody" class="divide-y divide-white/[0.04] text-slate-300">
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- PAGINATION -->
+  <div class="flex flex-col sm:flex-row items-center justify-between gap-4 panel-card p-3.5 text-xs text-slate-400 font-mono">
+    <div>
+      Показано: <span id="pag-showing-val" class="font-bold text-white">0</span> из <span id="pag-total-val" class="font-bold text-white">0</span> позиций
+    </div>
+
+    <div class="flex items-center gap-1.5">
+      <button onclick="changePage(-1)" id="btn-prev-page" class="px-2.5 py-1 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 border border-white/[0.08] disabled:opacity-30 disabled:cursor-not-allowed transition flex items-center gap-1 text-xs">
+        <i data-lucide="chevron-left" class="w-3.5 h-3.5"></i>
+        <span>Назад</span>
+      </button>
+
+      <span class="px-3 py-1 font-bold text-white bg-slate-900/90 rounded border border-white/[0.06]" id="pag-current-page">1 / 1</span>
+
+      <button onclick="changePage(1)" id="btn-next-page" class="px-2.5 py-1 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 border border-white/[0.08] disabled:opacity-30 disabled:cursor-not-allowed transition flex items-center gap-1 text-xs">
+        <span>Вперед</span>
+        <i data-lucide="chevron-right" class="w-3.5 h-3.5"></i>
+      </button>
+    </div>
+  </div>
+
+</div>
+
+<!-- ITEM DETAILS MODAL -->
+<div id="item-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 overflow-y-auto">
+  <div class="panel-card w-full max-w-3xl border border-white/[0.12] p-5 space-y-4 shadow-2xl my-8 max-h-[90vh] overflow-y-auto">
+    
+    <div class="flex items-center justify-between pb-3 border-b border-white/[0.06]">
+      <div class="min-w-0 pr-4">
+        <div class="flex items-center gap-2">
+          <span class="text-[10px] text-blue-400 font-mono font-semibold" id="modal-item-id">ID: —</span>
+          <span id="modal-hot-deal-tag" class="hidden px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-orange-500/20 text-orange-400 border border-orange-500/30">🔥 ВЫГОДНАЯ ЦЕНА</span>
+          <span id="modal-gem-tag" class="hidden px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">💎 GEM-ЛОТ</span>
+        </div>
+        <h3 id="modal-item-title" class="text-base font-bold text-white truncate mt-0.5"></h3>
+      </div>
+      <div class="flex items-center gap-2">
+        <button onclick="toggleModalFavorite()" id="btn-modal-favorite" class="p-1.5 rounded bg-slate-900 text-slate-400 hover:text-amber-400 border border-white/[0.06] transition" title="В избранное">
+          <i data-lucide="star" class="w-4 h-4"></i>
+        </button>
+        <button onclick="closeItemModal()" class="text-slate-400 hover:text-white transition flex-shrink-0 p-1">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+    </div>
+
+    <!-- Gallery & Price -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      
+      <!-- Gallery -->
+      <div class="space-y-2">
+        <div class="aspect-[4/3] bg-slate-950 rounded-lg overflow-hidden border border-white/[0.06] flex items-center justify-center">
+          <img id="modal-main-img" src="" class="w-full h-full object-contain" alt="">
+        </div>
+        <div id="modal-thumbs" class="flex items-center gap-1.5 overflow-x-auto py-1"></div>
+      </div>
+
+      <!-- Key Info -->
+      <div class="space-y-3 flex flex-col justify-between">
+        <div>
+          <div class="text-[11px] text-slate-500 font-mono uppercase">Стоимость:</div>
+          <div class="flex items-center gap-2 mt-0.5">
+            <span id="modal-item-price" class="text-2xl font-black text-white font-mono"></span>
+            <span id="modal-item-oldprice" class="text-xs line-through text-slate-500 font-mono"></span>
+          </div>
+
+          <div class="mt-3 space-y-2 text-xs">
+            <div class="flex items-center gap-2 text-slate-300">
+              <i data-lucide="map-pin" class="w-3.5 h-3.5 text-slate-500 flex-shrink-0"></i>
+              <span id="modal-item-address"></span>
+            </div>
+            <div class="flex items-center gap-2 text-slate-300">
+              <i data-lucide="user" class="w-3.5 h-3.5 text-slate-500 flex-shrink-0"></i>
+              <span id="modal-item-seller"></span>
+            </div>
+            <div class="flex items-center gap-2 text-slate-300">
+              <i data-lucide="truck" class="w-3.5 h-3.5 text-slate-500 flex-shrink-0"></i>
+              <span id="modal-item-delivery"></span>
+            </div>
+          </div>
+        </div>
+
+        <div class="pt-3 border-t border-white/[0.06] flex items-center gap-2">
+          <a id="modal-item-link" href="#" target="_blank" class="flex-1 py-2 rounded-lg text-xs font-semibold bg-blue-600 hover:bg-blue-500 text-white transition flex items-center justify-center gap-2">
+            <span>Открыть на Авито</span>
+            <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
+          </a>
+          <button onclick="deleteCurrentModalItem()" class="p-2 rounded-lg bg-slate-900 hover:bg-rose-500/20 text-rose-400 border border-white/[0.08] transition" title="Удалить из базы">
+            <i data-lucide="trash-2" class="w-4 h-4"></i>
+          </button>
+        </div>
+      </div>
+
+    </div>
+    <!-- AI Deal Scoring & Expert Analytics Block -->
+    <div class="p-4 rounded-xl bg-gradient-to-br from-slate-900 via-[#0b101d] to-slate-900 border border-white/[0.08] space-y-3.5 shadow-lg">
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <span class="w-2 h-2 rounded-full bg-blue-400 animate-pulse"></span>
+          <span class="text-xs font-bold uppercase tracking-wider font-mono text-white">AI Анализ и Оценка Выгоды</span>
+        </div>
+        <div id="modal-deal-grade-badge" class="px-2.5 py-0.5 rounded text-xs font-mono font-bold"></div>
+      </div>
+
+      <!-- Score bar -->
+      <div class="space-y-1.5">
+        <div class="flex justify-between text-xs font-mono">
+          <span class="text-slate-400">Многофакторный скоринг сделки:</span>
+          <span id="modal-deal-score-text" class="font-bold text-white">50 / 100</span>
+        </div>
+        <div class="w-full bg-slate-950 rounded-full h-2.5 overflow-hidden border border-white/[0.08] p-0.5">
+          <div id="modal-deal-score-bar" class="h-full rounded-full transition-all duration-500" style="width: 50%;"></div>
+        </div>
+      </div>
+
+      <!-- Factors and Flaws grid -->
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs pt-1">
+        <div class="space-y-1.5 p-2.5 rounded-lg bg-slate-950/60 border border-white/[0.04]">
+          <div class="text-slate-400 font-mono text-[10px] uppercase font-bold flex items-center gap-1">
+            <i data-lucide="check-circle-2" class="w-3 h-3 text-emerald-400"></i>
+            <span>Плюсы и маржинальность:</span>
+          </div>
+          <div id="modal-deal-reasons" class="space-y-1 text-slate-300 font-mono text-[11px]"></div>
+        </div>
+
+        <div class="space-y-1.5 p-2.5 rounded-lg bg-slate-950/60 border border-white/[0.04]">
+          <div class="text-slate-400 font-mono text-[10px] uppercase font-bold flex items-center gap-1">
+            <i data-lucide="alert-triangle" class="w-3 h-3 text-rose-400"></i>
+            <span>Выявленные риски / дефекты:</span>
+          </div>
+          <div id="modal-deal-flaws" class="space-y-1 text-rose-300 font-mono text-[11px]"></div>
+        </div>
+      </div>
+
+      <!-- LLM AI Summary & Trigger -->
+      <div class="pt-2.5 border-t border-white/[0.06] space-y-2">
+        <div class="flex items-center justify-between">
+          <div class="text-[11px] font-mono text-slate-300 font-semibold flex items-center gap-1.5">
+            <i data-lucide="bot" class="w-3.5 h-3.5 text-blue-400"></i>
+            <span>Экспертный вердикт нейросети:</span>
+          </div>
+          <button onclick="requestItemAISummary()" id="btn-request-ai" class="px-2.5 py-1 rounded bg-blue-600/30 hover:bg-blue-600/50 text-blue-300 border border-blue-500/30 text-xs font-medium transition flex items-center gap-1.5">
+            <i data-lucide="sparkles" class="w-3 h-3"></i>
+            <span id="btn-request-ai-text">Сгенерировать AI-вердикт</span>
+          </button>
+        </div>
+        <div id="modal-ai-summary" class="text-xs text-slate-200 bg-slate-950/80 p-3 rounded-lg border border-white/[0.06] italic leading-relaxed">
+          AI-резюме еще не сгенерировано. Нажмите кнопку выше для получения экспертного вердикта перепродажи.
+        </div>
+      </div>
+    </div>
+
+    <!-- Description & Parameters Tabs -->
+    <div class="space-y-2 pt-2 border-t border-white/[0.06]">
+      <div class="flex items-center justify-between">
+        <h4 class="text-[10px] font-bold uppercase text-slate-500 font-mono tracking-wider">Описание и Характеристики</h4>
+        <button onclick="refreshItemDetails()" id="btn-refresh-details" class="px-2.5 py-1 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-white/[0.08] text-[11px] font-medium font-mono transition flex items-center gap-1.5 shadow-sm">
+          <i data-lucide="download" class="w-3 h-3 text-cyan-400"></i>
+          <span id="btn-refresh-details-text">Загрузить с Авито</span>
+        </button>
+      </div>
+      <div id="modal-item-desc" class="text-xs text-slate-300 bg-slate-950 p-3 rounded-lg border border-white/[0.06] max-h-48 overflow-y-auto whitespace-pre-line leading-relaxed font-sans">
+      </div>
+      <div id="modal-item-specs" class="grid grid-cols-1 sm:grid-cols-2 gap-1.5 text-xs pt-1">
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let currentPage = 1;
+let totalPages = 1;
+let currentViewMode = 'grid';
+let debounceTimer = null;
+let currentViewingItemId = null;
+let selectedItemIds = new Set();
+let currentItemsMap = new Map();
+
+function setViewMode(mode) {
+  currentViewMode = mode;
+  const gridEl = document.getElementById('items-grid-container');
+  const tableEl = document.getElementById('items-table-container');
+  const btnGrid = document.getElementById('btn-view-grid');
+  const btnTable = document.getElementById('btn-view-table');
+
+  if (mode === 'grid') {
+    gridEl.classList.remove('hidden');
+    tableEl.classList.add('hidden');
+    btnGrid.className = 'flex-1 py-1 rounded text-xs font-semibold flex items-center justify-center gap-1.5 transition bg-white text-black shadow-sm';
+    btnTable.className = 'flex-1 py-1 rounded text-xs font-semibold flex items-center justify-center gap-1.5 transition text-slate-400 hover:text-white';
+  } else {
+    gridEl.classList.add('hidden');
+    tableEl.classList.remove('hidden');
+    btnTable.className = 'flex-1 py-1 rounded text-xs font-semibold flex items-center justify-center gap-1.5 transition bg-white text-black shadow-sm';
+    btnGrid.className = 'flex-1 py-1 rounded text-xs font-semibold flex items-center justify-center gap-1.5 transition text-slate-400 hover:text-white';
+  }
+}
+
+function debounceSearch() {
+  clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(() => {
+    loadItems(1);
+  }, 300);
+}
+
+async function loadSearchSelectOptions() {
+  try {
+    const searches = await apiFetch('/api/searches');
+    const select = document.getElementById('filter-search-id');
+    if (!select) return;
+    
+    const urlParams = new URLSearchParams(window.location.search);
+    const targetSearchId = urlParams.get('search_id');
+
+    select.innerHTML = '<option value="">Все задачи поиска</option>' + searches.map(s => `
+      <option value="${s.id}" ${targetSearchId == s.id ? 'selected' : ''}>${s.name} (${s.items_count || 0})</option>
+    `).join('');
+  } catch (e) {}
+}
+
+async function loadItems(page = 1) {
+  currentPage = page;
+  const query = document.getElementById('filter-query').value.trim();
+  const searchId = document.getElementById('filter-search-id').value;
+  const minPrice = document.getElementById('filter-min-price').value;
+  const maxPrice = document.getElementById('filter-max-price').value;
+  const dealGrade = document.getElementById('filter-deal-grade') ? document.getElementById('filter-deal-grade').value : '';
+  const discountOnly = document.getElementById('filter-discount-only').checked;
+  const deliveryOnly = document.getElementById('filter-delivery-only').checked;
+  const favoritesOnly = document.getElementById('filter-favorites-only').checked;
+  const hideReserved = document.getElementById('filter-hide-reserved') ? document.getElementById('filter-hide-reserved').checked : false;
+  const sortBy = document.getElementById('filter-sort-by').value;
+
+  const params = new URLSearchParams({
+    page: page,
+    page_size: 24,
+    sort_by: sortBy
+  });
+
+  if (query) params.append('query', query);
+  if (searchId) params.append('search_query_id', searchId);
+  if (minPrice) params.append('min_price', minPrice);
+  if (maxPrice) params.append('max_price', maxPrice);
+  if (dealGrade) params.append('deal_grade', dealGrade);
+  if (discountOnly) params.append('with_discount_only', 'true');
+  if (deliveryOnly) params.append('with_delivery_only', 'true');
+  if (favoritesOnly) params.append('favorites_only', 'true');
+  if (hideReserved) params.append('hide_reserved', 'true');
+  try {
+    const data = await apiFetch(`/api/items?${params.toString()}`);
+    totalPages = data.total_pages;
+
+    // Cache items for quick lookups
+    currentItemsMap.clear();
+    (data.items || []).forEach(it => currentItemsMap.set(String(it.id), it));
+
+    // Pagination numbers
+    document.getElementById('pag-showing-val').innerText = data.items.length;
+    document.getElementById('pag-total-val').innerText = data.total.toLocaleString('ru-RU');
+    document.getElementById('pag-total-badge').innerText = `${data.total.toLocaleString('ru-RU')} позиций`;
+    document.getElementById('pag-current-page').innerText = `${data.page} / ${totalPages || 1}`;
+
+    document.getElementById('btn-prev-page').disabled = data.page <= 1;
+    document.getElementById('btn-next-page').disabled = data.page >= totalPages;
+
+    renderGrid(data.items);
+    renderTable(data.items);
+    updateBatchBar();
+
+  } catch (err) {
+    console.error('Failed to load items:', err);
+  }
+}
+
+function toggleItemSelection(id, cbEl) {
+  if (cbEl.checked) {
+    selectedItemIds.add(String(id));
+  } else {
+    selectedItemIds.delete(String(id));
+  }
+  updateBatchBar();
+}
+
+function updateBatchBar() {
+  const bar = document.getElementById('batch-action-bar');
+  const countEl = document.getElementById('batch-selected-count');
+  if (selectedItemIds.size > 0) {
+    bar.classList.remove('hidden');
+    countEl.innerText = selectedItemIds.size;
+  } else {
+    bar.classList.add('hidden');
+  }
+}
+
+function clearSelection() {
+  selectedItemIds.clear();
+  document.querySelectorAll('.item-select-checkbox').forEach(cb => cb.checked = false);
+  const selectAll = document.getElementById('select-all-table');
+  if (selectAll) selectAll.checked = false;
+  updateBatchBar();
+}
+
+function toggleSelectAllTable(masterCb) {
+  const cbs = document.querySelectorAll('.table-item-checkbox');
+  cbs.forEach(cb => {
+    cb.checked = masterCb.checked;
+    const id = cb.getAttribute('data-id');
+    if (masterCb.checked) selectedItemIds.add(id);
+    else selectedItemIds.delete(id);
+  });
+  updateBatchBar();
+}
+
+async function toggleFavorite(itemId, e) {
+  if (e) e.stopPropagation();
+  try {
+    const res = await apiFetch(`/api/items/${itemId}/favorite`, { method: 'POST' });
+    const item = currentItemsMap.get(String(itemId));
+    if (item) item.is_favorite = res.is_favorite;
+    
+    // Update button icons
+    document.querySelectorAll(`.btn-fav-${itemId}`).forEach(btn => {
+      btn.innerHTML = res.is_favorite
+        ? '<i data-lucide="star" class="w-3.5 h-3.5 fill-amber-400 text-amber-400"></i>'
+        : '<i data-lucide="star" class="w-3.5 h-3.5 text-slate-500"></i>';
+    });
+    if (window.lucide) lucide.createIcons();
+    showToast(res.is_favorite ? 'Добавлено в избранное' : 'Удалено из избранного', 'info');
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
+}
+
+async function executeBatchAction(action) {
+  if (selectedItemIds.size === 0) return;
+  const ids = Array.from(selectedItemIds);
+
+  if (action === 'delete') {
+    if (!confirm(`Удалить ${ids.length} выбранных объявлений?`)) return;
+  }
+
+  try {
+    const res = await apiFetch('/api/items/batch-action', {
+      method: 'POST',
+      body: JSON.stringify({ item_ids: ids, action: action })
+    });
+    showToast(`Обработано ${res.processed_count} записей`, 'success');
+    clearSelection();
+    loadItems(currentPage);
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
+}
+
+function getGradeBadgeHtml(score, grade) {
+  const s = score !== undefined && score !== null ? score : 50;
+  const g = grade || (s >= 85 ? 'GEM' : (s >= 70 ? 'HOT' : (s >= 50 ? 'FAIR' : 'CAUTION')));
+  if (s >= 85 || g === 'GEM') {
+    return `<span class="px-2 py-0.5 rounded text-[10px] font-mono font-semibold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 flex items-center gap-1 backdrop-blur-sm">💎 ${s} GEM</span>`;
+  } else if (s >= 70 || g === 'HOT') {
+    return `<span class="px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold bg-amber-500/15 text-amber-300 border border-amber-500/30 flex items-center gap-1 backdrop-blur-sm">🔥 ${s} HOT</span>`;
+  } else if (s >= 50 || g === 'FAIR') {
+    return `<span class="px-1.5 py-0.5 rounded text-[9px] font-mono font-medium bg-[#1a1a1a]/80 text-slate-400 border border-[#333] backdrop-blur-sm">⚖️ ${s}</span>`;
+  } else {
+    return `<span class="px-1.5 py-0.5 rounded text-[9px] font-mono font-medium bg-rose-500/15 text-rose-300 border border-rose-500/30 backdrop-blur-sm">⚠️ ${s}</span>`;
+  }
+}
+
+function renderGrid(items) {
+  const container = document.getElementById('items-grid-container');
+  if (!items || items.length === 0) {
+    container.innerHTML = `<div class="col-span-full py-16 text-center text-slate-500 text-xs font-mono">Объявления по заданным фильтрам не найдены</div>`;
+    return;
+  }
+
+  container.innerHTML = items.map(it => {
+    const hasDiscount = it.old_price && it.price && it.price < it.old_price;
+    const discountPct = hasDiscount ? Math.round(((it.old_price - it.price) / it.old_price) * 100) : 0;
+    const isSelected = selectedItemIds.has(String(it.id));
+
+    return `
+      <div class="product-card group relative">
+        <div class="relative aspect-[4/3] bg-slate-950 overflow-hidden border-b border-white/[0.04]">
+          <img src="${it.main_image || '/static/img/no-image.svg'}" class="w-full h-full object-cover group-hover:scale-105 transition-all duration-300" onerror="this.src='/static/img/no-image.svg'">
+          
+          <!-- Checkbox overlay -->
+          <div class="absolute top-2 left-2 z-10">
+            <input type="checkbox" ${isSelected ? 'checked' : ''} onchange="toggleItemSelection('${it.id}', this)" class="item-select-checkbox w-4 h-4 text-blue-600 rounded bg-slate-900/90 border-slate-700 cursor-pointer shadow">
+          </div>
+
+          <!-- Badges -->
+          <div class="absolute top-2 right-2 flex flex-col gap-1 items-end z-10">
+            ${getGradeBadgeHtml(it.deal_score, it.deal_grade)}
+
+            ${it.is_reserved ? `
+              <span class="px-1.5 py-0.5 rounded text-[9px] font-mono font-medium bg-amber-500/10 text-amber-400 border border-amber-500/20 backdrop-blur-sm">
+                🔒 ЗАРЕЗЕРВИРОВАН
+              </span>
+            ` : ''}
+
+            ${hasDiscount ? `
+              <span class="px-1.5 py-0.5 rounded text-[9px] font-mono font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 backdrop-blur-sm">
+                -${discountPct}%
+              </span>
+            ` : ''}
+            ${it.delivery_available ? `
+              <span class="px-1.5 py-0.5 rounded bg-white/10 text-slate-200 text-[9px] font-mono font-medium border border-white/15 backdrop-blur-sm">
+                ДОСТАВКА
+              </span>
+            ` : ''}
+          </div>
+        </div>
+
+        <div class="p-3.5 flex-1 flex flex-col justify-between">
+            <div class="flex items-start justify-between gap-1">
+              <div class="font-semibold text-slate-200 text-xs line-clamp-2" title="${it.title}">${it.title}</div>
+              <button onclick="toggleFavorite('${it.id}', event)" class="btn-fav-${it.id} p-1 text-slate-500 hover:text-amber-400 transition flex-shrink-0" title="В избранное">
+                ${it.is_favorite 
+                  ? '<i data-lucide="star" class="w-3.5 h-3.5 fill-amber-400 text-amber-400"></i>' 
+                  : '<i data-lucide="star" class="w-3.5 h-3.5"></i>'}
+              </button>
+            </div>
+            
+            <div class="flex items-baseline gap-2 mt-1.5">
+              <span class="text-sm font-bold text-white font-mono">${formatPrice(it.price)}</span>
+              ${hasDiscount ? `<span class="text-[10px] line-through text-slate-500 font-mono">${formatPrice(it.old_price)}</span>` : ''}
+            </div>
+
+            <div class="text-[10px] text-slate-500 mt-1 truncate font-mono">
+              ${it.address || it.metro || 'Россия'}
+            </div>
+          </div>
+
+          <div class="mt-3 pt-2.5 border-t border-white/[0.04] flex items-center justify-between gap-1.5">
+            <button onclick="openItemModal('${it.id}')" class="px-2 py-1 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 border border-white/[0.06] text-xs font-medium transition flex items-center gap-1">
+              <i data-lucide="eye" class="w-3 h-3"></i>
+              <span>Детали</span>
+            </button>
+
+            <div class="flex items-center gap-1">
+              <button onclick="hideItem('${it.id}', event)" class="p-1 rounded bg-slate-900 hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 border border-white/[0.06] transition" title="Скрыть объявление">
+                <i data-lucide="eye-off" class="w-3.5 h-3.5"></i>
+              </button>
+              <a href="${it.url}" target="_blank" class="text-xs font-medium text-blue-400 hover:text-blue-300 transition flex items-center gap-0.5 ml-1">
+                <span>Авито</span>
+                <i data-lucide="external-link" class="w-3 h-3"></i>
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  if (window.lucide) lucide.createIcons();
+}
+
+function renderTable(items) {
+  const tbody = document.getElementById('items-table-tbody');
+  if (!items || items.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="7" class="py-12 text-center text-slate-500 text-xs font-mono">Объявления не найдены</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = items.map(it => {
+    const hasDiscount = it.old_price && it.price && it.price < it.old_price;
+    const discountPct = hasDiscount ? Math.round(((it.old_price - it.price) / it.old_price) * 100) : 0;
+    const isSelected = selectedItemIds.has(String(it.id));
+
+    return `
+      <tr class="hover:bg-white/[0.02] transition font-mono">
+        <td class="py-2.5 px-3">
+          <input type="checkbox" ${isSelected ? 'checked' : ''} data-id="${it.id}" onchange="toggleItemSelection('${it.id}', this)" class="table-item-checkbox w-3.5 h-3.5 rounded bg-slate-900 border-slate-700 cursor-pointer">
+        </td>
+        <td class="py-2.5 px-3">
+          <div class="flex items-center gap-2.5">
+            <img src="${it.main_image || '/static/img/no-image.svg'}" class="w-9 h-9 rounded object-cover bg-slate-950 border border-white/[0.06] flex-shrink-0" onerror="this.src='/static/img/no-image.svg'">
+            <div class="min-w-0 max-w-sm">
+              <div class="font-sans font-semibold text-slate-200 text-xs truncate flex items-center gap-1.5" title="${it.title}">
+                <span>${it.title}</span>
+              </div>
+              <div class="text-[10px] text-slate-500 flex items-center gap-2 mt-0.5">
+                <span>ID: ${it.id}</span>
+                ${getGradeBadgeHtml(it.deal_score, it.deal_grade)}
+              </div>
+            </div>
+          </div>
+        </td>
+        <td class="py-2.5 px-3 font-bold text-white text-xs">
+          ${formatPrice(it.price)}
+        </td>
+        <td class="py-2.5 px-3">
+          ${hasDiscount ? `
+            <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold price-drop-badge">
+              -${discountPct}%
+            </span>
+          ` : `<span class="text-slate-600 text-[11px]">—</span>`}
+        </td>
+        <td class="py-2.5 px-3 text-slate-400 text-[11px]">
+          <div>${it.address || '—'}</div>
+          ${it.metro ? `<div class="text-[10px] text-slate-500">м. ${it.metro}</div>` : ''}
+        </td>
+        <td class="py-2.5 px-3 text-[11px] text-slate-400 whitespace-nowrap">
+          ${formatRelativeTime(it.created_at)}
+        </td>
+        <td class="py-2.5 px-3 text-right space-x-1 whitespace-nowrap font-sans">
+          <button onclick="toggleFavorite('${it.id}', event)" class="btn-fav-${it.id} p-1.5 rounded bg-slate-900 text-slate-400 hover:text-amber-400 border border-white/[0.06] transition" title="В избранное">
+            ${it.is_favorite 
+              ? '<i data-lucide="star" class="w-3.5 h-3.5 fill-amber-400 text-amber-400"></i>' 
+              : '<i data-lucide="star" class="w-3.5 h-3.5"></i>'}
+          </button>
+          <button onclick="openItemModal('${it.id}')" class="p-1.5 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 border border-white/[0.06] transition" title="Детали">
+            <i data-lucide="eye" class="w-3.5 h-3.5"></i>
+          </button>
+          <a href="${it.url}" target="_blank" class="inline-block p-1.5 rounded bg-slate-900 hover:bg-slate-800 text-blue-400 border border-white/[0.06] transition" title="Открыть на Авито">
+            <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
+          </a>
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  if (window.lucide) lucide.createIcons();
+}
+
+function changePage(delta) {
+  const newP = currentPage + delta;
+  if (newP >= 1 && newP <= totalPages) {
+    loadItems(newP);
+  }
+}
+
+async function openItemModal(itemId) {
+  currentViewingItemId = itemId;
+  try {
+    const data = await apiFetch(`/api/items/${itemId}`);
+    const item = data.item;
+
+    document.getElementById('modal-item-id').innerText = `ID: ${item.id}`;
+    document.getElementById('modal-item-title').innerText = item.title;
+    document.getElementById('modal-item-price').innerText = formatPrice(item.price);
+    document.getElementById('modal-item-oldprice').innerText = item.old_price && item.old_price > item.price ? formatPrice(item.old_price) : '';
+    document.getElementById('modal-item-address').innerText = item.address || item.metro || 'Локация не указана';
+    document.getElementById('modal-item-seller').innerText = item.seller ? `${item.seller.name || 'Продавец'} (${item.seller.rating ? '★ ' + item.seller.rating : ''})` : 'Частное лицо';
+    document.getElementById('modal-item-delivery').innerText = item.delivery_available ? 'Авито Доставка доступна' : 'Самовывоз / Без доставки';
+    document.getElementById('modal-item-link').href = item.url;
+    document.getElementById('modal-item-desc').innerText = item.description || 'Описание отсутствует.';
+
+    const hotTag = document.getElementById('modal-hot-deal-tag');
+    const gemTag = document.getElementById('modal-gem-tag');
+    const score = item.deal_score !== undefined && item.deal_score !== null ? item.deal_score : 50;
+    const grade = item.deal_grade || (score >= 85 ? 'GEM' : (score >= 70 ? 'HOT' : (score >= 50 ? 'FAIR' : 'CAUTION')));
+
+    if (gemTag) {
+      if (grade === 'GEM' || score >= 85) gemTag.classList.remove('hidden');
+      else gemTag.classList.add('hidden');
+    }
+    if (hotTag) {
+      if (grade === 'HOT' || (score >= 70 && score < 85)) hotTag.classList.remove('hidden');
+      else hotTag.classList.add('hidden');
+    }
+
+    // Deal scoring block
+    document.getElementById('modal-deal-score-text').innerText = `${score} / 100`;
+    const scoreBar = document.getElementById('modal-deal-score-bar');
+    scoreBar.style.width = `${score}%`;
+    if (score >= 85) {
+      scoreBar.className = 'h-full rounded-full transition-all duration-500 bg-gradient-to-r from-emerald-500 to-cyan-400';
+    } else if (score >= 70) {
+      scoreBar.className = 'h-full rounded-full transition-all duration-500 bg-gradient-to-r from-amber-500 to-orange-500';
+    } else if (score >= 50) {
+      scoreBar.className = 'h-full rounded-full transition-all duration-500 bg-slate-500';
+    } else {
+      scoreBar.className = 'h-full rounded-full transition-all duration-500 bg-rose-500';
+    }
+
+    const gradeBadge = document.getElementById('modal-deal-grade-badge');
+    gradeBadge.innerHTML = getGradeBadgeHtml(score, grade);
+
+    // Reasons & Flaws
+    const reasonsEl = document.getElementById('modal-deal-reasons');
+    if (item.deal_reasons && item.deal_reasons.length > 0) {
+      reasonsEl.innerHTML = item.deal_reasons.map(r => `<div class="flex items-center gap-1"><span>✅</span> <span>${r}</span></div>`).join('');
+    } else {
+      reasonsEl.innerHTML = `<div class="text-slate-500 italic">Базовые параметры лота</div>`;
+    }
+
+    const flawsEl = document.getElementById('modal-deal-flaws');
+    if (item.detected_flaws && item.detected_flaws.length > 0) {
+      flawsEl.innerHTML = item.detected_flaws.map(f => `<div class="flex items-center gap-1"><span>⚠️</span> <span>${f}</span></div>`).join('');
+    } else {
+      flawsEl.innerHTML = `<div class="text-slate-500 italic">Рисков и дефектов не обнаружено ✅</div>`;
+    }
+
+    // AI Summary
+    const aiSummaryEl = document.getElementById('modal-ai-summary');
+    if (item.ai_summary) {
+      aiSummaryEl.innerText = item.ai_summary;
+      aiSummaryEl.className = 'text-xs text-slate-100 bg-blue-950/40 p-3 rounded-lg border border-blue-500/20 leading-relaxed font-sans';
+    } else {
+      aiSummaryEl.innerText = 'AI-резюме еще не сгенерировано. Нажмите кнопку выше для получения экспертного вердикта перепродажи.';
+      aiSummaryEl.className = 'text-xs text-slate-400 bg-slate-950/80 p-3 rounded-lg border border-white/[0.06] italic leading-relaxed font-sans';
+    }
+
+    const favBtn = document.getElementById('btn-modal-favorite');
+    if (favBtn) {
+      favBtn.innerHTML = item.is_favorite
+        ? '<i data-lucide="star" class="w-4 h-4 fill-amber-400 text-amber-400"></i>'
+        : '<i data-lucide="star" class="w-4 h-4 text-slate-400"></i>';
+    }
+
+    // Gallery
+    const mainImg = document.getElementById('modal-main-img');
+    const thumbsRow = document.getElementById('modal-thumbs');
+    thumbsRow.innerHTML = '';
+
+    const imgs = item.images && item.images.length > 0 ? item.images : (item.main_image ? [item.main_image] : []);
+    if (imgs.length > 0) {
+      mainImg.src = imgs[0];
+      imgs.forEach((src, idx) => {
+        const t = document.createElement('img');
+        t.src = src;
+        t.className = `w-12 h-12 rounded object-cover cursor-pointer border ${idx === 0 ? 'border-blue-500' : 'border-white/[0.08] opacity-60 hover:opacity-100'} transition flex-shrink-0`;
+        t.onclick = () => {
+          mainImg.src = src;
+          thumbsRow.querySelectorAll('img').forEach(x => x.className = 'w-12 h-12 rounded object-cover cursor-pointer border border-white/[0.08] opacity-60 hover:opacity-100 transition flex-shrink-0');
+          t.className = 'w-12 h-12 rounded object-cover cursor-pointer border border-blue-500 transition flex-shrink-0';
+        };
+        thumbsRow.appendChild(t);
+      });
+    } else {
+      mainImg.src = '/static/img/no-image.svg';
+    }
+
+    // Specs
+    const specsEl = document.getElementById('modal-item-specs');
+    specsEl.innerHTML = '';
+    if (item.params && Object.keys(item.params).length > 0) {
+      for (const [k, v] of Object.entries(item.params)) {
+        const d = document.createElement('div');
+        d.className = 'p-2 rounded bg-slate-900 border border-white/[0.04] flex justify-between font-mono text-[11px]';
+        d.innerHTML = `<span class="text-slate-400 font-sans">${k}:</span> <span class="font-semibold text-white">${v}</span>`;
+        specsEl.appendChild(d);
+      }
+    }
+
+    document.getElementById('item-modal').classList.remove('hidden');
+    if (window.lucide) lucide.createIcons();
+
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
+}
+
+async function requestItemAISummary() {
+  if (!currentViewingItemId) return;
+  const btn = document.getElementById('btn-request-ai');
+  const btnText = document.getElementById('btn-request-ai-text');
+  const aiSummaryEl = document.getElementById('modal-ai-summary');
+
+  btn.disabled = true;
+  btnText.innerText = 'Анализирую лот...';
+  aiSummaryEl.innerText = '⏳ Нейросеть изучает характеристики, описание и рыночные цены лота...';
+  aiSummaryEl.className = 'text-xs text-blue-300 bg-blue-950/30 p-3 rounded-lg border border-blue-500/20 italic leading-relaxed animate-pulse font-sans';
+
+  try {
+    const res = await apiFetch(`/api/ai/evaluate/${currentViewingItemId}`, { method: 'POST' });
+    if (res.status === 'success' && res.ai_summary) {
+      aiSummaryEl.innerText = res.ai_summary;
+      aiSummaryEl.className = 'text-xs text-slate-100 bg-blue-950/40 p-3 rounded-lg border border-blue-500/20 leading-relaxed font-sans';
+      
+      const item = currentItemsMap.get(String(currentViewingItemId));
+      if (item) item.ai_summary = res.ai_summary;
+      showToast('AI-вердикт успешно сформирован!', 'success');
+    }
+  } catch (err) {
+    aiSummaryEl.innerText = `Ошибка AI: ${err.message}. Проверьте настройки API ключа в разделе "Настройки".`;
+    aiSummaryEl.className = 'text-xs text-rose-300 bg-rose-950/40 p-3 rounded-lg border border-rose-500/30 leading-relaxed font-sans';
+    showToast(err.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btnText.innerText = 'Обновить AI-вердикт';
+    if (window.lucide) lucide.createIcons();
+  }
+}
+
+async function refreshItemDetails() {
+  if (!currentViewingItemId) return;
+  const btn = document.getElementById('btn-refresh-details');
+  const btnText = document.getElementById('btn-refresh-details-text');
+  if (btn) btn.classList.add('opacity-50', 'pointer-events-none');
+  if (btnText) btnText.innerText = 'Загрузка...';
+  showToast('Загружаю полное описание, фото и характеристики с Авито...', 'info');
+
+  try {
+    const res = await apiFetch(`/api/items/${currentViewingItemId}/refresh-details`, { method: 'POST' });
+    if (res.status === 'success' && res.item) {
+      showToast('Полные данные товара успешно загружены!', 'success');
+      await openItemModal(currentViewingItemId);
+    }
+  } catch (err) {
+    showToast(`Ошибка загрузки: ${err.message}`, 'error');
+  } finally {
+    if (btn) btn.classList.remove('opacity-50', 'pointer-events-none');
+    if (btnText) btnText.innerText = 'Загрузить с Авито';
+    if (window.lucide) lucide.createIcons();
+  }
+}
+
+async function recalculateAllScores() {
+  const btn = document.getElementById('btn-recalc-scores');
+  if (btn) btn.classList.add('opacity-50', 'pointer-events-none');
+  showToast('Запущен пересчет AI Score для всей базы...', 'info');
+  try {
+    const res = await apiFetch('/api/items/recalculate-scores', { method: 'POST' });
+    showToast(`Готово! Обновлено ${res.updated_count} позиций.`, 'success');
+    loadItems(currentPage);
+  } catch (err) {
+    showToast(err.message, 'error');
+  } finally {
+    if (btn) btn.classList.remove('opacity-50', 'pointer-events-none');
+  }
+}
+async function hideItem(itemId, e) {
+  if (e) e.stopPropagation();
+  try {
+    await apiFetch(`/api/items/${itemId}/hide`, { method: 'POST' });
+    showToast('Объявление скрыто из каталога', 'info');
+    loadItems(currentPage);
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
+}
+
+
+function toggleModalFavorite() {
+  if (currentViewingItemId) {
+    toggleFavorite(currentViewingItemId);
+    const item = currentItemsMap.get(String(currentViewingItemId));
+    const favBtn = document.getElementById('btn-modal-favorite');
+    if (favBtn && item) {
+      favBtn.innerHTML = item.is_favorite
+        ? '<i data-lucide="star" class="w-4 h-4 fill-amber-400 text-amber-400"></i>'
+        : '<i data-lucide="star" class="w-4 h-4 text-slate-400"></i>';
+      if (window.lucide) lucide.createIcons();
+    }
+  }
+}
+
+function closeItemModal() {
+  document.getElementById('item-modal').classList.add('hidden');
+  currentViewingItemId = null;
+}
+
+async function deleteCurrentModalItem() {
+  if (!currentViewingItemId) return;
+  if (!confirm('Удалить это объявление из базы данных?')) return;
+
+  try {
+    await apiFetch(`/api/items/${currentViewingItemId}`, { method: 'DELETE' });
+    showToast('Объявление удалено', 'success');
+    closeItemModal();
+    loadItems(currentPage);
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
+}
+
+async function clearAllDatabase() {
+  if (!confirm('Удалить все сохраненные объявления из базы данных?')) return;
+  try {
+    const res = await apiFetch('/api/items/clear', { method: 'POST' });
+    showToast(`База очищена (удалено ${res.deleted_count} записей)`, 'success');
+    loadItems(1);
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
+}
+
+function exportData(fmt) {
+  const query = document.getElementById('filter-query').value.trim();
+  const searchId = document.getElementById('filter-search-id').value;
+  const minPrice = document.getElementById('filter-min-price').value;
+  const maxPrice = document.getElementById('filter-max-price').value;
+  const discountOnly = document.getElementById('filter-discount-only').checked;
+
+  const params = new URLSearchParams();
+  if (query) params.append('query', query);
+  if (searchId) params.append('search_query_id', searchId);
+  if (minPrice) params.append('min_price', minPrice);
+  if (maxPrice) params.append('max_price', maxPrice);
+  if (discountOnly) params.append('with_discount_only', 'true');
+
+  window.location.href = `/api/export/${fmt}?${params.toString()}`;
+}
+
+function initItemsPage() {
+  const hideReservedEl = document.getElementById('filter-hide-reserved');
+  if (hideReservedEl) {
+    const saved = localStorage.getItem('avito_hide_reserved');
+    if (saved !== null) {
+      hideReservedEl.checked = (saved === 'true');
+    }
+    hideReservedEl.addEventListener('change', () => {
+      localStorage.setItem('avito_hide_reserved', hideReservedEl.checked);
+    });
+  }
+  loadSearchSelectOptions();
+  loadItems(1);
+}
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initItemsPage);
+} else {
+  initItemsPage();
+}
+</script>
+{% endblock %}

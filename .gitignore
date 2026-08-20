@@ -1,0 +1,58 @@
+# Python & Environment
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv/
+
+# Environment Variables & Secrets
+.env
+!.env.example
+*.pem
+*.key
+
+# Database & Persistent Data
+data/*.db
+data/*.db-journal
+data/*.db-wal
+data/*.db-shm
+*.sqlite
+*.sqlite3
+!data/.gitkeep
+
+# Exports & Artifacts
+exports/*
+!exports/.gitkeep
+*.xlsx
+*.csv
+*.json
+*.html_dump
+avito_search_dump.html
+rendered_dom.html
+sample_card.html
+test_page.html
+
+# Logs & Monitoring
+*.log
+logs/
+cv_debug.log
+
+# Browser & Headless State
+auth_state.json
+cookies.json
+.playwright/
+downloads/
+temp/
+*.tmp
+
+# Operating System & IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace

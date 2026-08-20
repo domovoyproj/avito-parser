@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  # 1. Web Control Panel & Scraper Data Engine
+  web:
+    build: .
+    container_name: avito_max_web
+    restart: always
+    ports:
+      - "8000:8000"
+    environment:
+      - WEB_HOST=0.0.0.0
+      - WEB_PORT=8000
+      - SCRAPER_HEADLESS=true
+    volumes:
+      - ./data:/app/data
+      - ./exports:/app/exports
+      - ./logs:/app/logs
+      - ./.env:/app/.env
+    command: ["python", "web_server.py"]
+
+  # 2. Telegram Bot Daemon (Optional / Continuous Monitoring)
+  bot:
+    build: .
+    container_name: avito_max_bot
+    restart: always
+    depends_on:
+      - web
+    environment:
+      - SCRAPER_HEADLESS=true
+    volumes:
+      - ./data:/app/data
+      - ./exports:/app/exports
+      - ./logs:/app/logs
+      - ./.env:/app/.env
+    command: ["python", "telegram_bot.py"]

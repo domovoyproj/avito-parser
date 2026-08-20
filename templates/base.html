@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="ru" class="dark h-full bg-[#050505]">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}Avito Max Parser — Control Terminal{% endblock %}</title>
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            app: {
+              bg: 'var(--bg-app)',
+              sidebar: 'var(--bg-sidebar)',
+              card: 'var(--bg-card)',
+              cardHover: 'var(--bg-card-hover)',
+              input: 'var(--bg-input)',
+              border: 'var(--border-subtle)'
+            }
+          },
+          fontFamily: {
+            sans: ['Inter', '-apple-system', 'BlinkMacSystemFont', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace']
+          }
+        }
+      }
+    }
+  </script>
+
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <!-- Custom Styles -->
+  <link rel="stylesheet" href="/static/css/styles.css?v=4.0.0">
+  <style>
+    /* Clean SaaS Ambient Glow (No moving orbs) */
+    .ambient-glow {
+      position: fixed;
+      top: -150px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 800px;
+      height: 400px;
+      background: radial-gradient(ellipse at top, rgba(255, 255, 255, 0.05), transparent 70%);
+      z-index: 0;
+      pointer-events: none;
+    }
+
+    /* Clean Solid Surfaces */
+    .solid-sidebar {
+      background: var(--bg-sidebar) !important;
+      border-right: 1px solid var(--border-subtle) !important;
+    }
+    .solid-header {
+      background: var(--bg-app) !important;
+      border-bottom: 1px solid var(--border-subtle) !important;
+    }
+  </style>
+  {% block head %}{% endblock %}
+</head>
+<body class="h-full bg-[#050505] text-[#ededed] flex overflow-hidden font-sans antialiased selection:bg-white selection:text-black relative" style="background-color: #050505 !important; color: #ededed !important;">
+
+  <!-- Minimalist Ambient Glow -->
+  <div class="ambient-glow"></div>
+
+  <!-- SIDEBAR -->
+  <aside class="w-64 solid-sidebar flex flex-col flex-shrink-0 z-30 select-none relative">
+    
+    <!-- Brand Logo Header -->
+    <div class="h-16 flex items-center gap-3 px-5 border-b border-[var(--border-subtle)] bg-transparent">
+      <div class="w-8 h-8 rounded-lg bg-[#111] border border-[#333] flex items-center justify-center text-white font-mono font-bold text-sm">
+        <i data-lucide="layers" class="w-4 h-4 text-white"></i>
+      </div>
+      <div>
+        <div class="font-bold text-xs tracking-wider text-white uppercase flex items-center gap-1.5">
+          Avito Max <span class="text-[9px] font-mono px-1 py-0.2 rounded bg-white/10 text-white font-semibold border border-[#333]">PARSER</span>
+        </div>
+        <div class="text-[10px] text-slate-500 font-mono">AVITO DATA ENGINE</div>
+      </div>
+    </div>
+
+    <!-- Navigation Menu -->
+    <div class="flex-1 overflow-y-auto px-3 py-4 space-y-1">
+      <div class="px-3 pb-2 text-[10px] font-bold uppercase tracking-widest text-slate-500 font-mono">Аналитика</div>
+
+      <a href="/" class="nav-item {% if page == 'dashboard' %}active{% endif %}">
+        <i data-lucide="layout-grid" class="w-4 h-4 text-slate-400"></i>
+        <span>Обзор и Дашборд</span>
+      </a>
+
+      <div class="pt-4 px-3 pb-2 text-[10px] font-bold uppercase tracking-widest text-slate-500 font-mono">Сбор данных</div>
+
+      <a href="/parser" class="nav-item {% if page == 'parser' %}active{% endif %}">
+        <i data-lucide="crosshair" class="w-4 h-4 text-slate-400"></i>
+        <span>Парсер выдачи</span>
+      </a>
+
+      <a href="/item-parser" class="nav-item {% if page == 'item_parser' %}active{% endif %}">
+        <i data-lucide="file-search" class="w-4 h-4 text-slate-400"></i>
+        <span>Карточка товара</span>
+      </a>
+
+      <a href="/monitoring" class="nav-item {% if page == 'monitoring' %}active{% endif %} flex items-center justify-between">
+        <div class="flex items-center gap-2.5">
+          <i data-lucide="radar" class="w-4 h-4 text-slate-400"></i>
+          <span>Мониторинг</span>
+        </div>
+        <span id="sidebar-active-searches-pill" class="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-[#111] border border-[#333] text-slate-400"></span>
+      </a>
+
+      <div class="pt-4 px-3 pb-2 text-[10px] font-bold uppercase tracking-widest text-slate-500 font-mono">База данных</div>
+
+      <a href="/items" class="nav-item {% if page == 'items' %}active{% endif %} flex items-center justify-between">
+        <div class="flex items-center gap-2.5">
+          <i data-lucide="database" class="w-4 h-4 text-slate-400"></i>
+          <span>Каталог товаров</span>
+        </div>
+        <span id="sidebar-total-items-pill" class="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-[#111] border border-[#333] text-slate-400"></span>
+      </a>
+
+      <a href="/price-drops" class="nav-item {% if page == 'price_drops' %}active{% endif %}">
+        <i data-lucide="trending-down" class="w-4 h-4 text-emerald-400"></i>
+        <span>Падения цен</span>
+      </a>
+
+      <div class="pt-4 px-3 pb-2 text-[10px] font-bold uppercase tracking-widest text-slate-500 font-mono">Конфигурация</div>
+
+      <a href="/proxies" class="nav-item {% if page == 'proxies' %}active{% endif %}">
+        <i data-lucide="shield" class="w-4 h-4 text-slate-400"></i>
+        <span>Прокси пул</span>
+      </a>
+
+      <a href="/settings" class="nav-item {% if page == 'settings' %}active{% endif %}">
+        <i data-lucide="sliders" class="w-4 h-4 text-slate-400"></i>
+        <span>Настройки & TG</span>
+      </a>
+
+      <a href="/logs" class="nav-item {% if page == 'logs' %}active{% endif %}">
+        <i data-lucide="terminal" class="w-4 h-4 text-slate-400"></i>
+        <span>Логи системы</span>
+      </a>
+
+      {% if user and user.role == 'admin' %}
+      <div class="pt-4 px-3 pb-2 text-[10px] font-bold uppercase tracking-widest text-slate-500 font-mono">Администрирование</div>
+
+      <a href="/admin/users" class="nav-item {% if page == 'admin_users' %}active{% endif %}">
+        <i data-lucide="users" class="w-4 h-4 text-white"></i>
+        <span>Пользователи</span>
+      </a>
+      {% endif %}
+    </div>
+
+    <!-- User Profile & Status Footer -->
+    <div class="p-3 border-t border-[var(--border-subtle)] bg-transparent space-y-2">
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-2 min-w-0">
+          <div class="w-7 h-7 rounded bg-[#111] border border-[#333] flex items-center justify-center text-white text-xs font-bold font-mono flex-shrink-0">
+            {{ (user.username[0] | upper) if user and user.username else 'U' }}
+          </div>
+          <div class="min-w-0 flex-1">
+            <div class="text-xs font-semibold text-white truncate">{{ user.username if user else 'Пользователь' }}</div>
+            <div class="text-[9px] font-mono text-slate-400 uppercase tracking-wider">{{ user.role if user else 'USER' }}</div>
+          </div>
+        </div>
+        <button onclick="handleLogout()" class="p-1.5 rounded hover:bg-white/[0.06] text-slate-400 hover:text-rose-400 transition" title="Выйти из системы">
+          <i data-lucide="log-out" class="w-3.5 h-3.5"></i>
+        </button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- MAIN VIEWPORT -->
+  <div class="flex-1 flex flex-col min-w-0 overflow-hidden bg-transparent z-10 relative">
+    
+    <!-- TOPBAR -->
+    <header class="h-16 solid-header px-6 flex items-center justify-between flex-shrink-0 z-20 relative">
+      
+      <!-- Telemetry Status Badges -->
+      <div class="flex items-center gap-4">
+        <div id="global-monitor-status-badge" class="inline-flex items-center gap-2 px-2.5 py-1 rounded-md text-xs font-mono bg-[#111] border border-[#222] text-slate-400">
+          <span class="w-1.5 h-1.5 rounded-full bg-slate-500"></span> Инициализация...
+        </div>
+
+        <div class="hidden md:flex items-center gap-4 text-xs text-slate-400 border-l border-[#222] pl-4 font-mono">
+          <div>Товаров: <span id="global-items-count" class="font-bold text-white">0</span></div>
+          <span class="text-slate-700">/</span>
+          <div>Задач: <span id="global-searches-count" class="font-bold text-white">0</span></div>
+        </div>
+      </div>
+
+      <!-- Header Actions & User -->
+      <div class="flex items-center gap-2.5">
+        <a href="/parser" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-[#ededed] hover:bg-white text-[#050505] transition shadow-sm">
+          <i data-lucide="play" class="w-3.5 h-3.5"></i>
+          <span>Запустить сбор</span>
+        </a>
+        <a href="/api/export/excel" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-[#111] hover:bg-[#222] text-slate-300 border border-[#333] transition">
+          <i data-lucide="download" class="w-3.5 h-3.5 text-slate-400"></i>
+          <span>Excel</span>
+        </a>
+        <button onclick="handleLogout()" class="px-2.5 py-1.5 rounded-lg text-xs font-medium bg-transparent hover:bg-rose-500/10 text-slate-400 hover:text-rose-400 border border-[#333] transition flex items-center gap-1" title="Выход">
+          <i data-lucide="log-out" class="w-3.5 h-3.5"></i>
+          <span class="hidden sm:inline">Выход</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- CONTENT WRAPPER -->
+    <main class="flex-1 overflow-y-auto p-6 md:p-8 bg-transparent">
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+
+  <!-- TOAST CONTAINER -->
+  <div id="toast-container" class="fixed bottom-5 right-5 z-50 flex flex-col gap-2 max-w-sm w-full pointer-events-auto"></div>
+
+  <!-- Global App JS -->
+  <script src="/static/js/app.js"></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

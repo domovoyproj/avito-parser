@@ -1,0 +1,363 @@
+{% extends "base.html" %}
+
+{% block title %}Управление пользователями — Avito Data Terminal{% endblock %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto space-y-5">
+
+  <!-- Header -->
+  <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-2 border-b border-white/[0.06]">
+    <div>
+      <div class="flex items-center gap-2.5">
+        <h1 class="text-xl font-bold text-white tracking-tight">Управление Пользователями и Доступом</h1>
+        <span class="text-xs font-mono px-2 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20">
+          RBAC ADMIN
+        </span>
+      </div>
+      <p class="text-slate-400 text-xs mt-0.5">Создание учетных записей, распределение ролей и контроль прав доступа к терминалу</p>
+    </div>
+
+    <button onclick="openAddUserModal()" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-blue-600 hover:bg-blue-500 text-white transition flex items-center gap-1.5 shadow-sm">
+      <i data-lucide="user-plus" class="w-3.5 h-3.5"></i>
+      <span>Добавить пользователя</span>
+    </button>
+  </div>
+
+  <!-- KPI SUMMARY -->
+  <div class="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+    <div class="panel-card p-4">
+      <div class="label-caps">Всего учетных записей</div>
+      <div id="users-total-count" class="text-2xl font-black text-white mt-1 metric-value">0</div>
+      <div class="text-[11px] text-slate-500 mt-1 font-mono">База пользователей</div>
+    </div>
+
+    <div class="panel-card p-4">
+      <div class="label-caps">Администраторы</div>
+      <div id="users-admin-count" class="text-2xl font-black text-blue-400 mt-1 metric-value">0</div>
+      <div class="text-[11px] text-slate-500 mt-1 font-mono">Полный контроль (Full Access)</div>
+    </div>
+
+    <div class="panel-card p-4">
+      <div class="label-caps">Активные сессии</div>
+      <div id="users-active-count" class="text-2xl font-black text-emerald-400 mt-1 metric-value">0</div>
+      <div class="text-[11px] text-slate-500 mt-1 font-mono">Статус: Доступ разрешен</div>
+    </div>
+  </div>
+
+  <!-- USERS LIST TABLE -->
+  <div class="panel-card p-4 space-y-3">
+    <div class="flex items-center justify-between pb-2.5 border-b border-white/[0.06]">
+      <h3 class="text-xs font-bold text-white uppercase tracking-wider font-mono">Список Пользователей</h3>
+      <span id="users-badge-text" class="text-[11px] text-slate-500 font-mono">Всего: 0</span>
+    </div>
+
+    <div class="overflow-x-auto">
+      <table class="w-full text-left text-xs font-mono">
+        <thead>
+          <tr class="text-slate-500 text-[10px] uppercase tracking-wider border-b border-white/[0.06] pb-2">
+            <th class="py-2.5 px-3">ID</th>
+            <th class="py-2.5 px-3">Имя пользователя</th>
+            <th class="py-2.5 px-3">Роль</th>
+            <th class="py-2.5 px-3">Статус</th>
+            <th class="py-2.5 px-3">Дата создания</th>
+            <th class="py-2.5 px-3">Последний вход</th>
+            <th class="py-2.5 px-3 text-right">Действия</th>
+          </tr>
+        </thead>
+        <tbody id="users-tbody" class="divide-y divide-white/[0.04] text-slate-300">
+          <tr>
+            <td colspan="7" class="py-8 text-center text-slate-500 text-xs">Загрузка пользователей...</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+<!-- ADD USER MODAL -->
+<div id="add-user-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+  <div class="panel-card w-full max-w-md border border-white/[0.12] p-5 space-y-4 shadow-2xl">
+    <div class="flex items-center justify-between pb-2.5 border-b border-white/[0.06]">
+      <h3 class="text-sm font-bold text-white">Создание Пользователя</h3>
+      <button onclick="closeAddUserModal()" class="text-slate-400 hover:text-white transition p-1">
+        <i data-lucide="x" class="w-4 h-4"></i>
+      </button>
+    </div>
+
+    <form id="add-user-form" onsubmit="handleCreateUser(event)" class="space-y-3.5">
+      <div>
+        <label class="block text-[11px] font-semibold text-slate-300 mb-1 font-mono">Логин <span class="text-rose-400">*</span></label>
+        <input 
+          type="text" 
+          id="add-username" 
+          required 
+          placeholder="operator_1" 
+          class="w-full app-input px-3 py-2 text-xs text-white focus:outline-none font-mono"
+        >
+      </div>
+
+      <div>
+        <label class="block text-[11px] font-semibold text-slate-300 mb-1 font-mono">Пароль <span class="text-rose-400">*</span></label>
+        <input 
+          type="password" 
+          id="add-password" 
+          required 
+          placeholder="Минимум 4 символа" 
+          class="w-full app-input px-3 py-2 text-xs text-white focus:outline-none font-mono"
+        >
+      </div>
+
+      <div>
+        <label class="block text-[11px] font-semibold text-slate-300 mb-1 font-mono">Уровень доступа (Роль)</label>
+        <select id="add-role" class="w-full app-input px-3 py-2 text-xs text-slate-200 focus:outline-none font-mono">
+          <option value="operator" selected>Оператор (Сбор данных и мониторинг)</option>
+          <option value="admin">Администратор (Полный доступ и настройки)</option>
+          <option value="viewer">Наблюдатель (Только просмотр каталога)</option>
+        </select>
+      </div>
+
+      <div class="pt-2.5 flex items-center justify-end gap-2 border-t border-white/[0.06]">
+        <button type="button" onclick="closeAddUserModal()" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-slate-900 hover:bg-slate-800 text-slate-400 transition">
+          Отмена
+        </button>
+        <button type="submit" class="px-4 py-1.5 rounded-lg text-xs font-semibold bg-blue-600 hover:bg-blue-500 text-white transition shadow-sm">
+          Создать
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- EDIT USER MODAL -->
+<div id="edit-user-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+  <div class="panel-card w-full max-w-md border border-white/[0.12] p-5 space-y-4 shadow-2xl">
+    <div class="flex items-center justify-between pb-2.5 border-b border-white/[0.06]">
+      <h3 class="text-sm font-bold text-white">Редактирование Пользователя</h3>
+      <button onclick="closeEditUserModal()" class="text-slate-400 hover:text-white transition p-1">
+        <i data-lucide="x" class="w-4 h-4"></i>
+      </button>
+    </div>
+
+    <form id="edit-user-form" onsubmit="handleUpdateUser(event)" class="space-y-3.5">
+      <input type="hidden" id="edit-user-id">
+
+      <div>
+        <label class="block text-[11px] font-semibold text-slate-300 mb-1 font-mono">Логин <span class="text-rose-400">*</span></label>
+        <input 
+          type="text" 
+          id="edit-username" 
+          required 
+          class="w-full app-input px-3 py-2 text-xs text-white focus:outline-none font-mono"
+        >
+      </div>
+
+      <div>
+        <label class="block text-[11px] font-semibold text-slate-300 mb-1 font-mono">Роль</label>
+        <select id="edit-role" class="w-full app-input px-3 py-2 text-xs text-slate-200 focus:outline-none font-mono">
+          <option value="admin">Администратор (admin)</option>
+          <option value="operator">Оператор (operator)</option>
+          <option value="viewer">Наблюдатель (viewer)</option>
+        </select>
+      </div>
+
+      <div>
+        <label class="block text-[11px] font-semibold text-slate-400 mb-1 font-mono">Новый пароль (оставьте пустым, чтобы не менять)</label>
+        <input 
+          type="password" 
+          id="edit-password" 
+          placeholder="Оставьте пустым" 
+          class="w-full app-input px-3 py-2 text-xs text-white focus:outline-none font-mono"
+        >
+      </div>
+
+      <div>
+        <label class="flex items-center gap-2 cursor-pointer select-none text-slate-300 pt-1">
+          <input type="checkbox" id="edit-is-active" class="w-3.5 h-3.5 text-blue-600 rounded bg-slate-900 border-slate-700">
+          <span class="text-xs font-mono">Учетная запись активна</span>
+        </label>
+      </div>
+
+      <div class="pt-2.5 flex items-center justify-end gap-2 border-t border-white/[0.06]">
+        <button type="button" onclick="closeEditUserModal()" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-slate-900 hover:bg-slate-800 text-slate-400 transition">
+          Отмена
+        </button>
+        <button type="submit" class="px-4 py-1.5 rounded-lg text-xs font-semibold bg-blue-600 hover:bg-blue-500 text-white transition shadow-sm">
+          Сохранить изменения
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let usersList = [];
+
+async function loadUsersPage() {
+  try {
+    const data = await apiFetch('/api/admin/users');
+    usersList = data.users || [];
+
+    document.getElementById('users-total-count').innerText = usersList.length;
+    document.getElementById('users-badge-text').innerText = `Всего: ${usersList.length}`;
+    
+    const adminCount = usersList.filter(u => u.role === 'admin').length;
+    const activeCount = usersList.filter(u => u.is_active).length;
+
+    document.getElementById('users-admin-count').innerText = adminCount;
+    document.getElementById('users-active-count').innerText = activeCount;
+
+    renderUsersTable();
+
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
+}
+
+function renderUsersTable() {
+  const tbody = document.getElementById('users-tbody');
+  if (!tbody) return;
+
+  if (usersList.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="7" class="py-8 text-center text-slate-500 text-xs">Пользователи не найдены</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = usersList.map(u => {
+    let roleBadge = '<span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-slate-400">VIEWER</span>';
+    if (u.role === 'admin') {
+      roleBadge = '<span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-500/15 text-blue-400 border border-blue-500/25">ADMIN</span>';
+    } else if (u.role === 'operator') {
+      roleBadge = '<span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/25">OPERATOR</span>';
+    }
+
+    const statusBadge = u.is_active
+      ? '<span class="inline-flex items-center gap-1 text-[10px] text-emerald-400"><span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span> АКТИВЕН</span>'
+      : '<span class="inline-flex items-center gap-1 text-[10px] text-rose-400"><span class="w-1.5 h-1.5 rounded-full bg-rose-400"></span> ОТКЛЮЧЕН</span>';
+
+    return `
+      <tr class="hover:bg-white/[0.02] transition">
+        <td class="py-2.5 px-3 text-slate-500 text-[11px]">#${u.id}</td>
+        <td class="py-2.5 px-3 font-semibold text-slate-100 text-xs">${u.username}</td>
+        <td class="py-2.5 px-3">${roleBadge}</td>
+        <td class="py-2.5 px-3">${statusBadge}</td>
+        <td class="py-2.5 px-3 text-slate-400 text-[11px]">${formatDate(u.created_at)}</td>
+        <td class="py-2.5 px-3 text-slate-400 text-[11px]">${formatRelativeTime(u.last_login_at)}</td>
+        <td class="py-2.5 px-3 text-right space-x-1 whitespace-nowrap">
+          <button onclick="openEditUserModal(${u.id})" class="p-1.5 rounded bg-slate-900 hover:bg-slate-800 text-blue-400 border border-white/[0.06] transition" title="Редактировать">
+            <i data-lucide="edit-3" class="w-3.5 h-3.5"></i>
+          </button>
+          <button onclick="deleteUserRow(${u.id})" class="p-1.5 rounded bg-slate-900 hover:bg-rose-500/20 text-rose-400 border border-white/[0.06] transition" title="Удалить">
+            <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+          </button>
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  if (window.lucide) lucide.createIcons();
+}
+
+function openAddUserModal() {
+  document.getElementById('add-username').value = '';
+  document.getElementById('add-password').value = '';
+  document.getElementById('add-role').value = 'operator';
+  document.getElementById('add-user-modal').classList.remove('hidden');
+}
+
+function closeAddUserModal() {
+  document.getElementById('add-user-modal').classList.add('hidden');
+}
+
+async function handleCreateUser(e) {
+  e.preventDefault();
+  const username = document.getElementById('add-username').value.trim();
+  const password = document.getElementById('add-password').value;
+  const role = document.getElementById('add-role').value;
+
+  try {
+    const res = await apiFetch('/api/admin/users', {
+      method: 'POST',
+      body: JSON.stringify({ username, password, role })
+    });
+    showToast(res.message, 'success');
+    closeAddUserModal();
+    loadUsersPage();
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
+}
+
+function openEditUserModal(userId) {
+  const user = usersList.find(u => u.id === userId);
+  if (!user) return;
+
+  document.getElementById('edit-user-id').value = user.id;
+  document.getElementById('edit-username').value = user.username;
+  document.getElementById('edit-role').value = user.role;
+  document.getElementById('edit-password').value = '';
+  document.getElementById('edit-is-active').checked = user.is_active;
+
+  document.getElementById('edit-user-modal').classList.remove('hidden');
+}
+
+function closeEditUserModal() {
+  document.getElementById('edit-user-modal').classList.add('hidden');
+}
+
+async function handleUpdateUser(e) {
+  e.preventDefault();
+  const userId = parseInt(document.getElementById('edit-user-id').value);
+  const username = document.getElementById('edit-username').value.trim();
+  const role = document.getElementById('edit-role').value;
+  const password = document.getElementById('edit-password').value;
+  const isActive = document.getElementById('edit-is-active').checked;
+
+  const payload = {
+    username: username,
+    role: role,
+    is_active: isActive
+  };
+
+  if (password) {
+    payload.password = password;
+  }
+
+  try {
+    const res = await apiFetch(`/api/admin/users/${userId}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload)
+    });
+    showToast(res.message, 'success');
+    closeEditUserModal();
+    loadUsersPage();
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
+}
+
+async function deleteUserRow(userId) {
+  if (!confirm(`Вы уверены, что хотите удалить пользователя #${userId}?`)) return;
+
+  try {
+    const res = await apiFetch(`/api/admin/users/${userId}`, { method: 'DELETE' });
+    showToast(res.message, 'success');
+    loadUsersPage();
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
+}
+
+function initAdminUsersPage() {
+  loadUsersPage();
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initAdminUsersPage);
+} else {
+  initAdminUsersPage();
+}
+</script>
+{% endblock %}

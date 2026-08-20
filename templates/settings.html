@@ -1,0 +1,772 @@
+{% extends "base.html" %}
+
+{% block title %}Настройки — Avito Data Terminal{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto space-y-5">
+
+  <!-- Header -->
+  <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-white/[0.06]">
+    <div>
+      <div class="flex items-center gap-2.5">
+        <h1 class="text-xl font-bold text-white tracking-tight">Настройки Системы</h1>
+        <span class="text-xs font-mono px-2 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20">
+          CONFIGURATION
+        </span>
+      </div>
+      <p class="text-slate-400 text-xs mt-0.5">Управление параметрами браузера, задержками, сетью и Telegram-ботом</p>
+    </div>
+
+    <button onclick="saveAllSettings()" class="px-4 py-2 rounded-lg text-xs font-semibold bg-blue-600 hover:bg-blue-500 text-white transition flex items-center gap-2 shadow-sm">
+      <i data-lucide="save" class="w-3.5 h-3.5"></i>
+      <span>Сохранить параметры</span>
+    </button>
+  </div>
+
+  <!-- SETTINGS FORM -->
+  <div class="space-y-4">
+
+    <!-- 1. TELEGRAM BOT SETTINGS -->
+    <div class="panel-card p-5 space-y-4">
+      <div class="flex items-center justify-between pb-3 border-b border-white/[0.06]">
+        <div class="flex items-center gap-2.5">
+          <div class="w-7 h-7 rounded bg-blue-500/10 flex items-center justify-center text-blue-400">
+            <i data-lucide="send" class="w-3.5 h-3.5"></i>
+          </div>
+          <div>
+            <h3 class="text-xs font-bold text-white uppercase tracking-wider font-mono">Telegram Бот Уведомлений</h3>
+            <p class="text-[11px] text-slate-400">Оповещения о новых товарах и снижении цен в реальном времени</p>
+          </div>
+        </div>
+
+        <button type="button" onclick="sendTestTelegramMessage()" class="px-3 py-1 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 border border-white/[0.08] text-xs font-medium transition flex items-center gap-1.5">
+          <i data-lucide="bell" class="w-3.5 h-3.5 text-blue-400"></i>
+          <span>Тест отправки</span>
+        </button>
+      </div>
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+        <!-- Bot Token -->
+        <div class="sm:col-span-2">
+          <label class="block text-[11px] font-semibold text-slate-300 mb-1 font-mono">Токен Telegram бота (от @BotFather)</label>
+          <div class="relative">
+            <input 
+              type="password" 
+              id="set-tg-token" 
+              placeholder="123456789:ABCdefGhIJKlmNoPQRstuVWXyz" 
+              class="w-full app-input px-3 py-2 text-xs text-white focus:outline-none font-mono"
+            >
+            <button type="button" onclick="toggleTokenVisibility()" class="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-white">
+              <i data-lucide="eye" id="icon-toggle-token" class="w-3.5 h-3.5"></i>
+            </button>
+          </div>
+        </div>
+
+        <!-- Admin IDs -->
+        <div>
+          <label class="block text-[11px] font-semibold text-slate-300 mb-1 font-mono">ID администраторов (через запятую)</label>
+          <input 
+            type="text" 
+            id="set-tg-admin-ids" 
+            placeholder="123456789, 987654321" 
+            class="w-full app-input px-3 py-2 text-xs text-white focus:outline-none font-mono"
+          >
+          <p class="text-[10px] text-slate-500 mt-1 font-mono">ID чата можно узнать через бота @userinfobot</p>
+        </div>
+
+        <!-- Interval -->
+        <div>
+          <label class="block text-[11px] font-semibold text-slate-300 mb-1 font-mono">Интервал цикла мониторинга (мин.)</label>
+          <input 
+            type="number" 
+            id="set-tg-interval" 
+            min="1" 
+            max="1440" 
+            value="10" 
+            class="w-full app-input px-3 py-2 text-xs text-white focus:outline-none font-mono text-center"
+          >
+        </div>
+
+        <!-- Send photos checkbox -->
+        <div class="sm:col-span-2 pt-1">
+          <label class="flex items-center gap-2 cursor-pointer select-none text-slate-300">
+            <input type="checkbox" id="set-tg-send-photos" checked class="w-3.5 h-3.5 text-blue-600 rounded bg-slate-900 border-slate-700">
+            <span class="text-xs">Прикреплять фото товара к уведомлениям</span>
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <!-- 2. SCRAPER & BROWSER SETTINGS -->
+    <div class="panel-card p-5 space-y-4">
+      <div class="flex items-center justify-between pb-3 border-b border-white/[0.06]">
+        <div class="flex items-center gap-2.5">
+          <div class="w-7 h-7 rounded bg-indigo-500/10 flex items-center justify-center text-indigo-400">
+            <i data-lucide="cpu" class="w-3.5 h-3.5"></i>
+          </div>
+          <div>
+            <h3 class="text-xs font-bold text-white uppercase tracking-wider font-mono">Параметры Парсера и Браузера</h3>
+            <p class="text-[11px] text-slate-400">Настройки Playwright, задержки и таймауты</p>
+          </div>
+        </div>
+
+        <button type="button" onclick="clearCookies()" class="px-3 py-1 rounded bg-slate-900 hover:bg-slate-800 text-slate-400 border border-white/[0.08] text-xs font-medium transition flex items-center gap-1.5 font-mono">
+          <i data-lucide="trash-2" class="w-3 h-3 text-amber-400"></i>
+          <span>Очистить cookies.json</span>
+        </button>
+      </div>
+
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-3.5 font-mono">
+        <!-- Headless Mode -->
+        <div>
+          <label class="block text-[11px] font-semibold text-slate-400 mb-1">Режим браузера</label>
+          <select id="set-scraper-headless" class="w-full app-input px-3 py-2 text-xs text-white focus:outline-none font-mono">
+            <option value="true">Headless (Скрытый)</option>
+            <option value="false">Видимое окно (для капчи)</option>
+          </select>
+        </div>
+
+        <!-- Min Page Delay -->
+        <div>
+          <label class="block text-[11px] font-semibold text-slate-400 mb-1">Мин. пауза (сек.)</label>
+          <input 
+            type="number" 
+            step="0.5" 
+            id="set-delay-min" 
+            value="2.0" 
+            class="w-full app-input px-3 py-2 text-xs text-white focus:outline-none text-center font-mono"
+          >
+        </div>
+
+        <!-- Max Page Delay -->
+        <div>
+          <label class="block text-[11px] font-semibold text-slate-400 mb-1">Макс. пауза (сек.)</label>
+          <input 
+            type="number" 
+            step="0.5" 
+            id="set-delay-max" 
+            value="5.0" 
+            class="w-full app-input px-3 py-2 text-xs text-white focus:outline-none text-center font-mono"
+          >
+        </div>
+
+        <!-- Timeout MS -->
+        <div class="sm:col-span-3">
+          <label class="block text-[11px] font-semibold text-slate-400 mb-1">Таймаут загрузки страницы (мс)</label>
+          <input 
+            type="number" 
+            id="set-timeout-ms" 
+            value="45000" 
+            class="w-full app-input px-3 py-2 text-xs text-white focus:outline-none font-mono"
+          >
+        </div>
+      </div>
+    </div>
+
+    <!-- 3. PROXY SETTINGS -->
+    <div class="panel-card p-5 space-y-4">
+      <div class="flex items-center gap-2.5 pb-3 border-b border-white/[0.06]">
+        <div class="w-7 h-7 rounded bg-purple-500/10 flex items-center justify-center text-purple-400">
+          <i data-lucide="shield" class="w-3.5 h-3.5"></i>
+        </div>
+        <div>
+          <h3 class="text-xs font-bold text-white uppercase tracking-wider font-mono">Глобальный Прокси-Сервер</h3>
+          <p class="text-[11px] text-slate-400">Использование единого прокси для всех сетевых движков</p>
+        </div>
+      </div>
+
+      <div class="space-y-3">
+        <div>
+          <label class="flex items-center gap-2 cursor-pointer select-none text-slate-300">
+            <input type="checkbox" id="set-proxy-enabled" class="w-3.5 h-3.5 text-purple-600 rounded bg-slate-900 border-slate-700">
+            <span class="text-xs font-semibold">Включить глобальное использование прокси</span>
+          </label>
+        </div>
+
+        <div>
+          <label class="block text-[11px] font-semibold text-slate-400 mb-1 font-mono">Единый адрес прокси (опционально)</label>
+          <input 
+            type="text" 
+            id="set-default-proxy" 
+            placeholder="socks5://user:pass@host:port или http://host:port" 
+            class="w-full app-input px-3 py-2 text-xs text-white focus:outline-none font-mono"
+          >
+        </div>
+      </div>
+    </div>
+    <!-- 4. AI ENGINE & LLM SETTINGS -->
+    <div class="panel-card p-5 space-y-4 border border-blue-500/20 bg-gradient-to-br from-slate-950 via-[#0a1220] to-slate-950">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-white/[0.06]">
+        <div class="flex items-center gap-2.5">
+          <div class="w-7 h-7 rounded bg-blue-500/10 flex items-center justify-center text-blue-400">
+            <i data-lucide="sparkles" class="w-3.5 h-3.5"></i>
+          </div>
+          <div>
+            <h3 class="text-xs font-bold text-white uppercase tracking-wider font-mono flex items-center gap-1.5">
+              <span>AI Движок Оценки и Экспертизы (LLM)</span>
+              <span class="px-1.5 py-0.2 rounded text-[9px] bg-blue-500/20 text-blue-300">NEURAL ENGINE</span>
+            </h3>
+            <p class="text-[11px] text-slate-400">Автоматический расчет выгодности сделок и генерация экспертных вердиктов</p>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-2">
+          <button type="button" onclick="testAIConnection()" id="btn-test-ai" class="px-3 py-1 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 border border-white/[0.08] text-xs font-medium transition flex items-center gap-1.5">
+            <i data-lucide="zap" class="w-3.5 h-3.5 text-amber-400"></i>
+            <span>Тест подключения</span>
+          </button>
+          <button type="button" onclick="recalculateAllScoresFromSettings()" id="btn-recalc-all" class="px-3 py-1 rounded bg-blue-600/30 hover:bg-blue-600/50 text-blue-200 border border-blue-500/30 text-xs font-medium transition flex items-center gap-1.5">
+            <i data-lucide="refresh-cw" class="w-3 h-3"></i>
+            <span>Пересчитать скоринг базы</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="space-y-4">
+        <!-- Enabled Checkbox -->
+        <div>
+          <label class="flex items-center gap-2 cursor-pointer select-none text-slate-300">
+            <input type="checkbox" id="set-ai-enabled" class="w-3.5 h-3.5 text-blue-600 rounded bg-slate-900 border-slate-700">
+            <span class="text-xs font-semibold">Включить нейросетевой анализ лотов (OpenAI / DeepSeek / Ollama)</span>
+          </label>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5 font-mono">
+          <!-- Provider Select -->
+          <div>
+            <label class="block text-[11px] font-semibold text-slate-400 mb-1">AI Провайдер</label>
+            <select id="set-ai-provider" onchange="onAIProviderChange()" class="w-full app-input px-3 py-2 text-xs text-white focus:outline-none font-mono">
+              <option value="deepseek">DeepSeek (Рекомендуется)</option>
+              <option value="openai">OpenAI (GPT-4o mini / GPT-4o)</option>
+              <option value="openrouter">OpenRouter (Мульти-модели)</option>
+              <option value="ollama">Ollama (Локально на ПК / Бесплатно)</option>
+            </select>
+          </div>
+
+          <!-- Model Name -->
+          <div>
+            <label class="block text-[11px] font-semibold text-slate-400 mb-1">Название модели</label>
+            <input 
+              type="text" 
+              id="set-ai-model" 
+              value="deepseek-chat" 
+              placeholder="deepseek-chat" 
+              class="w-full app-input px-3 py-2 text-xs text-white focus:outline-none font-mono"
+            >
+          </div>
+
+          <!-- API Base URL -->
+          <div class="sm:col-span-2">
+            <label class="block text-[11px] font-semibold text-slate-400 mb-1">API Base URL</label>
+            <input 
+              type="text" 
+              id="set-ai-base-url" 
+              value="https://api.deepseek.com" 
+              placeholder="https://api.deepseek.com" 
+              class="w-full app-input px-3 py-2 text-xs text-white focus:outline-none font-mono"
+            >
+          </div>
+
+          <!-- API Key -->
+          <div class="sm:col-span-2">
+            <label class="block text-[11px] font-semibold text-slate-400 mb-1">API Ключ (Key / Token)</label>
+            <div class="relative">
+              <input 
+                type="password" 
+                id="set-ai-api-key" 
+                placeholder="sk-..." 
+                class="w-full app-input px-3 py-2 text-xs text-white focus:outline-none font-mono"
+              >
+              <button type="button" onclick="toggleAIKeyVisibility()" class="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-white">
+                <i data-lucide="eye" id="icon-toggle-ai-key" class="w-3.5 h-3.5"></i>
+              </button>
+            </div>
+            <p class="text-[10px] text-slate-500 mt-1 font-sans">Для Ollama ключ можно оставить пустым. Для DeepSeek получите ключ на platform.deepseek.com.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 5. CUSTOM SCORING RULES -->
+    <div class="panel-card p-5 space-y-4 border border-amber-500/20 bg-gradient-to-br from-slate-950 via-[#14120a] to-slate-950">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-white/[0.06]">
+        <div class="flex items-center gap-2.5">
+          <div class="w-7 h-7 rounded bg-amber-500/10 flex items-center justify-center text-amber-400">
+            <i data-lucide="filter" class="w-3.5 h-3.5"></i>
+          </div>
+          <div>
+            <h3 class="text-xs font-bold text-white uppercase tracking-wider font-mono flex items-center gap-1.5">
+              <span>Пользовательские Правила Скоринга</span>
+              <span class="px-1.5 py-0.2 rounded text-[9px] bg-amber-500/20 text-amber-300">CUSTOM RULES</span>
+            </h3>
+            <p class="text-[11px] text-slate-400">Свои стоп-слова (штрафы) и бустеры (бонусы) для оценки объявлений</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Add New Rule Form -->
+      <div class="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
+        <div class="sm:col-span-4">
+          <label class="block text-[11px] font-semibold text-slate-400 mb-1 font-mono">Ключевое слово / regex</label>
+          <input type="text" id="rule-pattern" placeholder="\bрст\b или без комплекта"
+            class="w-full app-input px-3 py-2 text-xs text-white focus:outline-none font-mono">
+        </div>
+        <div class="sm:col-span-4">
+          <label class="block text-[11px] font-semibold text-slate-400 mb-1 font-mono">Описание</label>
+          <input type="text" id="rule-label" placeholder="Товар для российского рынка (РСТ)"
+            class="w-full app-input px-3 py-2 text-xs text-white focus:outline-none font-mono">
+        </div>
+        <div class="sm:col-span-2">
+          <label class="block text-[11px] font-semibold text-slate-400 mb-1 font-mono">Баллы (±)</label>
+          <input type="number" id="rule-score-delta" value="-25" min="-50" max="50"
+            class="w-full app-input px-3 py-2 text-xs text-white focus:outline-none font-mono text-center">
+        </div>
+        <div class="sm:col-span-2">
+          <button onclick="addCustomRule()" class="w-full px-3 py-2 rounded-lg text-xs font-semibold bg-amber-600 hover:bg-amber-500 text-white transition flex items-center justify-center gap-1.5 shadow-sm">
+            <i data-lucide="plus" class="w-3.5 h-3.5"></i>
+            <span>Добавить</span>
+          </button>
+        </div>
+      </div>
+
+      <p class="text-[10px] text-slate-500 font-mono">
+        Положительные баллы = бустер (например «гарантия» → +10). Отрицательные = штраф (например «рст» → -25). Regex паттерны поддерживаются.
+      </p>
+
+      <!-- Rules List -->
+      <div id="custom-rules-list" class="space-y-2">
+        <div class="text-xs text-slate-500 text-center py-4 font-mono">Загрузка правил...</div>
+      </div>
+    </div>
+
+    <!-- 6. WEBHOOK SETTINGS -->
+    <div class="panel-card p-5 space-y-4">
+      <div class="flex items-center gap-2.5 pb-3 border-b border-white/[0.06]">
+        <div class="w-7 h-7 rounded bg-cyan-500/10 flex items-center justify-center text-cyan-400">
+          <i data-lucide="webhook" class="w-3.5 h-3.5"></i>
+        </div>
+        <div>
+          <h3 class="text-xs font-bold text-white uppercase tracking-wider font-mono">Webhook Уведомления</h3>
+          <p class="text-[11px] text-slate-400">Отправка JSON-событий на внешний URL (Discord, n8n, Home Assistant)</p>
+        </div>
+      </div>
+
+      <div class="space-y-3">
+        <div>
+          <label class="flex items-center gap-2 cursor-pointer select-none text-slate-300">
+            <input type="checkbox" id="set-webhook-enabled" class="w-3.5 h-3.5 text-cyan-600 rounded bg-slate-900 border-slate-700">
+            <span class="text-xs font-semibold">Включить Webhook уведомления</span>
+          </label>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5 font-mono">
+          <div class="sm:col-span-2">
+            <label class="block text-[11px] font-semibold text-slate-400 mb-1">Webhook URL</label>
+            <input type="text" id="set-webhook-url" placeholder="https://discord.com/api/webhooks/... или http://localhost:5678/webhook/avito"
+              class="w-full app-input px-3 py-2 text-xs text-white focus:outline-none font-mono">
+          </div>
+
+          <div>
+            <label class="block text-[11px] font-semibold text-slate-400 mb-1">Мин. Deal Score (0 = все)</label>
+            <input type="number" id="set-webhook-min-score" value="0" min="0" max="100"
+              class="w-full app-input px-3 py-2 text-xs text-white focus:outline-none font-mono text-center">
+          </div>
+
+          <div>
+            <label class="block text-[11px] font-semibold text-slate-400 mb-1">Secret (HMAC подпись)</label>
+            <input type="text" id="set-webhook-secret" placeholder="опционально"
+              class="w-full app-input px-3 py-2 text-xs text-white focus:outline-none font-mono">
+          </div>
+
+          <div class="sm:col-span-2 flex items-center gap-4">
+            <label class="flex items-center gap-2 cursor-pointer select-none text-slate-300">
+              <input type="checkbox" id="set-webhook-new" checked class="w-3.5 h-3.5 text-cyan-600 rounded bg-slate-900 border-slate-700">
+              <span class="text-xs">Новые товары</span>
+            </label>
+            <label class="flex items-center gap-2 cursor-pointer select-none text-slate-300">
+              <input type="checkbox" id="set-webhook-drops" checked class="w-3.5 h-3.5 text-cyan-600 rounded bg-slate-900 border-slate-700">
+              <span class="text-xs">Снижения цен</span>
+            </label>
+          </div>
+        </div>
+      </div>
+    </div>
+
+
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let tokenVisible = false;
+let aiKeyVisible = false;
+
+function toggleTokenVisibility() {
+  tokenVisible = !tokenVisible;
+  const input = document.getElementById('set-tg-token');
+  const icon = document.getElementById('icon-toggle-token');
+  input.type = tokenVisible ? 'text' : 'password';
+  icon.setAttribute('data-lucide', tokenVisible ? 'eye-off' : 'eye');
+  if (window.lucide) lucide.createIcons();
+}
+
+function toggleAIKeyVisibility() {
+  aiKeyVisible = !aiKeyVisible;
+  const input = document.getElementById('set-ai-api-key');
+  const icon = document.getElementById('icon-toggle-ai-key');
+  input.type = aiKeyVisible ? 'text' : 'password';
+  icon.setAttribute('data-lucide', aiKeyVisible ? 'eye-off' : 'eye');
+  if (window.lucide) lucide.createIcons();
+}
+
+function onAIProviderChange() {
+  const provider = document.getElementById('set-ai-provider').value;
+  const baseUrlInput = document.getElementById('set-ai-base-url');
+  const modelInput = document.getElementById('set-ai-model');
+
+  if (provider === 'deepseek') {
+    baseUrlInput.value = 'https://api.deepseek.com';
+    modelInput.value = 'deepseek-chat';
+  } else if (provider === 'openai') {
+    baseUrlInput.value = 'https://api.openai.com/v1';
+    modelInput.value = 'gpt-4o-mini';
+  } else if (provider === 'openrouter') {
+    baseUrlInput.value = 'https://openrouter.ai/api/v1';
+    modelInput.value = 'deepseek/deepseek-chat';
+  } else if (provider === 'ollama') {
+    baseUrlInput.value = 'http://localhost:11434/v1';
+    modelInput.value = 'llama3.2:3b';
+  }
+}
+
+async function loadSettings() {
+  try {
+    const [data, aiData] = await Promise.all([
+      apiFetch('/api/settings'),
+      apiFetch('/api/ai/settings').catch(() => null)
+    ]);
+    
+    // Telegram
+    document.getElementById('set-tg-token').value = data.telegram.bot_token || '';
+    document.getElementById('set-tg-admin-ids').value = (data.telegram.admin_chat_ids || []).join(', ');
+    document.getElementById('set-tg-interval').value = data.telegram.notification_interval_min || 10;
+    document.getElementById('set-tg-send-photos').checked = data.telegram.send_photos !== false;
+
+    // Scraper
+    document.getElementById('set-scraper-headless').value = data.scraper.headless ? 'true' : 'false';
+    document.getElementById('set-delay-min').value = data.scraper.page_delay_min || 2.0;
+    document.getElementById('set-delay-max').value = data.scraper.page_delay_max || 5.0;
+    document.getElementById('set-timeout-ms').value = data.scraper.timeout_ms || 45000;
+
+    // Proxy
+    document.getElementById('set-proxy-enabled').checked = Boolean(data.proxy.enabled);
+    document.getElementById('set-default-proxy').value = data.proxy.default_proxy || '';
+
+    // AI Settings
+    if (aiData && aiData.settings) {
+      const ai = aiData.settings;
+      document.getElementById('set-ai-enabled').checked = Boolean(ai.enabled);
+      document.getElementById('set-ai-provider').value = ai.provider || 'deepseek';
+      document.getElementById('set-ai-model').value = ai.model || 'deepseek-chat';
+      document.getElementById('set-ai-base-url').value = ai.api_base || 'https://api.deepseek.com';
+      document.getElementById('set-ai-api-key').value = ai.api_key || '';
+    }
+
+  } catch (err) {
+    console.error('Failed to load settings:', err);
+  }
+}
+
+async function saveAllSettings() {
+  const token = document.getElementById('set-tg-token').value.trim();
+  const adminIdsStr = document.getElementById('set-tg-admin-ids').value.trim();
+  const interval = parseInt(document.getElementById('set-tg-interval').value) || 10;
+  const sendPhotos = document.getElementById('set-tg-send-photos').checked;
+
+  const headless = document.getElementById('set-scraper-headless').value === 'true';
+  const delayMin = parseFloat(document.getElementById('set-delay-min').value) || 2.0;
+  const delayMax = parseFloat(document.getElementById('set-delay-max').value) || 5.0;
+  const timeoutMs = parseInt(document.getElementById('set-timeout-ms').value) || 45000;
+
+  const proxyEnabled = document.getElementById('set-proxy-enabled').checked;
+  const defaultProxy = document.getElementById('set-default-proxy').value.trim();
+
+  let adminIds = [];
+  if (adminIdsStr) {
+    adminIds = adminIdsStr.split(',').map(x => parseInt(x.trim())).filter(x => !isNaN(x));
+  }
+
+  const payload = {
+    headless: headless,
+    timeout_ms: timeoutMs,
+    page_delay_min: delayMin,
+    page_delay_max: delayMax,
+    proxy_enabled: proxyEnabled,
+    default_proxy: defaultProxy || null,
+    bot_token: token || null,
+    admin_chat_ids: adminIds,
+    notification_interval_min: interval,
+    send_photos: sendPhotos
+  };
+
+  // AI Settings
+  const aiEnabled = document.getElementById('set-ai-enabled').checked;
+  const aiProvider = document.getElementById('set-ai-provider').value;
+  const aiModel = document.getElementById('set-ai-model').value.trim();
+  const aiBaseUrl = document.getElementById('set-ai-base-url').value.trim();
+  const aiKey = document.getElementById('set-ai-api-key').value.trim();
+
+  try {
+    await Promise.all([
+      apiFetch('/api/settings', {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      }),
+      apiFetch('/api/ai/settings', {
+        method: 'POST',
+        body: JSON.stringify({
+          enabled: aiEnabled,
+          provider: aiProvider,
+          model: aiModel,
+          api_base: aiBaseUrl,
+          api_key: aiKey
+        })
+      }),
+      saveWebhookSettings()
+    ]);
+    showToast('Все параметры (включая AI и Webhook) успешно сохранены', 'success');
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
+}
+async function sendTestTelegramMessage() {
+  const token = document.getElementById('set-tg-token').value.trim();
+  const adminIdsStr = document.getElementById('set-tg-admin-ids').value.trim();
+
+  if (!token) {
+    showToast('Сначала введите токен Telegram бота', 'warning');
+    return;
+  }
+
+  const firstAdminId = adminIdsStr.split(',')[0]?.trim();
+  if (!firstAdminId || isNaN(parseInt(firstAdminId))) {
+    showToast('Введите хотя бы один числовой ID администратора', 'warning');
+    return;
+  }
+
+  showToast('Отправка тестового сообщения...', 'info');
+
+  try {
+    const res = await apiFetch('/api/telegram/test', {
+      method: 'POST',
+      body: JSON.stringify({
+        bot_token: token,
+        chat_id: parseInt(firstAdminId)
+      })
+    });
+    showToast(res.message, 'success');
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
+}
+async function testAIConnection() {
+  const provider = document.getElementById('set-ai-provider').value;
+  const model = document.getElementById('set-ai-model').value.trim();
+  const baseUrl = document.getElementById('set-ai-base-url').value.trim();
+  const apiKey = document.getElementById('set-ai-api-key').value.trim();
+
+  if (provider !== 'ollama' && !apiKey) {
+    showToast('Введите API-ключ для проверки подключения', 'warning');
+    return;
+  }
+
+  const btn = document.getElementById('btn-test-ai');
+  if (btn) btn.classList.add('opacity-50', 'pointer-events-none');
+  showToast('Проверка связи с AI-провайдером...', 'info');
+
+  try {
+    const res = await apiFetch('/api/ai/test', {
+      method: 'POST',
+      body: JSON.stringify({
+        provider: provider,
+        model: model,
+        api_base: baseUrl,
+        api_key: apiKey
+      })
+    });
+    showToast(`Успех: ${res.message} [${res.model}]`, 'success');
+  } catch (err) {
+    showToast(`Ошибка подключения: ${err.message}`, 'error');
+  } finally {
+    if (btn) btn.classList.remove('opacity-50', 'pointer-events-none');
+  }
+}
+
+async function recalculateAllScoresFromSettings() {
+  const btn = document.getElementById('btn-recalc-all');
+  if (btn) btn.classList.add('opacity-50', 'pointer-events-none');
+  showToast('Пересчитываю скоринг всех товаров в базе...', 'info');
+
+  try {
+    const res = await apiFetch('/api/items/recalculate-scores', { method: 'POST' });
+    showToast(`Успешно пересчитано ${res.updated_count} позиций!`, 'success');
+  } catch (err) {
+    showToast(err.message, 'error');
+  } finally {
+    if (btn) btn.classList.remove('opacity-50', 'pointer-events-none');
+  }
+}
+
+async function clearCookies() {
+  if (!confirm('Очистить сохраненный файл cookies.json?')) return;
+  try {
+    const res = await apiFetch('/api/settings/clear-cookies', { method: 'POST' });
+    showToast(res.message, 'success');
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
+}
+
+function initSettingsPage() {
+  loadSettings();
+  loadCustomRules();
+  loadWebhookSettings();
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initSettingsPage);
+} else {
+  initSettingsPage();
+}
+
+// ============================================================
+// CUSTOM SCORING RULES
+// ============================================================
+
+async function loadCustomRules() {
+  try {
+    const res = await apiFetch('/api/scoring/rules');
+    const list = document.getElementById('custom-rules-list');
+    if (!list) return;
+
+    const rules = res.rules || [];
+    if (rules.length === 0) {
+      list.innerHTML = '<div class="text-xs text-slate-500 text-center py-4 font-mono">Нет пользовательских правил. Добавьте свои стоп-слова или бустеры выше.</div>';
+      return;
+    }
+
+    list.innerHTML = rules.map(r => {
+      const isBooster = r.score_delta > 0;
+      const badgeClass = isBooster
+        ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+        : 'bg-rose-500/20 text-rose-300 border-rose-500/30';
+      const deltaStr = isBooster ? `+${r.score_delta}` : `${r.score_delta}`;
+      const activeClass = r.is_active ? '' : 'opacity-40';
+
+      return `
+        <div class="flex items-center justify-between gap-3 px-3 py-2 rounded-lg bg-slate-900/50 border border-white/[0.06] ${activeClass}">
+          <div class="flex items-center gap-3 min-w-0 flex-1">
+            <span class="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold border ${badgeClass}">${deltaStr}</span>
+            <div class="min-w-0 flex-1">
+              <div class="text-xs text-slate-200 font-medium truncate">${r.label}</div>
+              <div class="text-[10px] text-slate-500 font-mono truncate">/${r.pattern}/</div>
+            </div>
+          </div>
+          <div class="flex items-center gap-1.5 flex-shrink-0">
+            <button onclick="toggleRule(${r.id})" class="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-white transition" title="${r.is_active ? 'Отключить' : 'Включить'}">
+              <i data-lucide="${r.is_active ? 'pause' : 'play'}" class="w-3.5 h-3.5"></i>
+            </button>
+            <button onclick="deleteRule(${r.id})" class="p-1 rounded hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 transition" title="Удалить">
+              <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+            </button>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    if (window.lucide) lucide.createIcons();
+  } catch (err) {
+    console.error('Failed to load custom rules:', err);
+  }
+}
+
+async function addCustomRule() {
+  const pattern = document.getElementById('rule-pattern').value.trim();
+  const label = document.getElementById('rule-label').value.trim();
+  const scoreDelta = parseInt(document.getElementById('rule-score-delta').value) || -25;
+
+  if (!pattern) { showToast('Введите ключевое слово или regex паттерн', 'warning'); return; }
+  if (!label) { showToast('Введите описание правила', 'warning'); return; }
+
+  try {
+    await apiFetch('/api/scoring/rules', {
+      method: 'POST',
+      body: JSON.stringify({ pattern, label, score_delta: scoreDelta })
+    });
+    document.getElementById('rule-pattern').value = '';
+    document.getElementById('rule-label').value = '';
+    document.getElementById('rule-score-delta').value = '-25';
+    showToast('Правило скоринга добавлено', 'success');
+    loadCustomRules();
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
+}
+
+async function toggleRule(ruleId) {
+  try {
+    await apiFetch(`/api/scoring/rules/${ruleId}/toggle`, { method: 'PATCH' });
+    loadCustomRules();
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
+}
+
+async function deleteRule(ruleId) {
+  if (!confirm('Удалить правило скоринга?')) return;
+  try {
+    await apiFetch(`/api/scoring/rules/${ruleId}`, { method: 'DELETE' });
+    showToast('Правило удалено', 'success');
+    loadCustomRules();
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
+}
+
+// ============================================================
+// WEBHOOK SETTINGS
+// ============================================================
+
+async function loadWebhookSettings() {
+  try {
+    const res = await apiFetch('/api/webhook/settings');
+    const s = res.settings || {};
+    document.getElementById('set-webhook-enabled').checked = Boolean(s.enabled);
+    document.getElementById('set-webhook-url').value = s.url || '';
+    document.getElementById('set-webhook-min-score').value = s.min_deal_score || 0;
+    document.getElementById('set-webhook-secret').value = s.secret || '';
+    document.getElementById('set-webhook-new').checked = s.send_new !== false;
+    document.getElementById('set-webhook-drops').checked = s.send_drops !== false;
+  } catch (err) {
+    console.error('Failed to load webhook settings:', err);
+  }
+}
+
+async function saveWebhookSettings() {
+  const payload = {
+    enabled: document.getElementById('set-webhook-enabled').checked,
+    url: document.getElementById('set-webhook-url').value.trim(),
+    min_deal_score: parseInt(document.getElementById('set-webhook-min-score').value) || 0,
+    secret: document.getElementById('set-webhook-secret').value.trim(),
+    send_new: document.getElementById('set-webhook-new').checked,
+    send_drops: document.getElementById('set-webhook-drops').checked
+  };
+  await apiFetch('/api/webhook/settings', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  });
+}
+</script>
+{% endblock %}

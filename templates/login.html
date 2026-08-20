@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="ru" class="dark h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Вход — Avito Data Engine</title>
+    <!-- Use Inter for a highly professional, human SaaS look -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <style>
+        :root {
+            --bg-base: #050505;
+            --card-bg: rgba(20, 20, 25, 0.6);
+            --border-color: rgba(255, 255, 255, 0.06);
+            --text-main: #ededed;
+            --text-muted: #888888;
+            --accent: #ededed; /* White accent for premium feel */
+            --accent-hover: #ffffff;
+            --input-bg: rgba(255, 255, 255, 0.03);
+            --input-border: rgba(255, 255, 255, 0.1);
+            --input-focus: rgba(255, 255, 255, 0.2);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        body {
+            background-color: var(--bg-base);
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: var(--text-main);
+            position: relative;
+            overflow: hidden;
+        }
+
+        /* Subtle, static SaaS lighting - No floating orbs */
+        .ambient-spotlight {
+            position: absolute;
+            top: -20vh;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 80vw;
+            height: 60vh;
+            background: radial-gradient(ellipse at top, rgba(255, 255, 255, 0.03) 0%, transparent 70%);
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        /* Clean, non-distracting navigation */
+        .brand-header {
+            position: absolute;
+            top: 40px;
+            left: 40px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            z-index: 10;
+        }
+
+        .brand-icon {
+            width: 28px;
+            height: 28px;
+            background: var(--text-main);
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--bg-base);
+        }
+
+        .brand-text {
+            font-weight: 600;
+            font-size: 14px;
+            letter-spacing: -0.2px;
+        }
+
+        /* The perfectly centered, restrained login card */
+        .login-wrapper {
+            position: relative;
+            z-index: 10;
+            width: 100%;
+            max-width: 380px;
+            animation: fadeIn 0.6s ease-out forwards;
+        }
+
+        .login-card {
+            background: var(--card-bg);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 40px;
+            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.2), 0 1px 2px rgba(0,0,0,0.4);
+        }
+
+        .card-header {
+            margin-bottom: 32px;
+        }
+
+        .card-header h1 {
+            font-size: 20px;
+            font-weight: 600;
+            margin-bottom: 8px;
+            letter-spacing: -0.5px;
+        }
+
+        .card-header p {
+            font-size: 14px;
+            color: var(--text-muted);
+            line-height: 1.5;
+        }
+
+        /* Minimalist Inputs */
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-label {
+            display: block;
+            font-size: 13px;
+            color: var(--text-muted);
+            margin-bottom: 8px;
+            font-weight: 500;
+        }
+
+        .form-input {
+            width: 100%;
+            background: var(--input-bg);
+            border: 1px solid var(--input-border);
+            color: var(--text-main);
+            padding: 12px 14px;
+            border-radius: 8px;
+            font-size: 14px;
+            outline: none;
+            transition: all 0.2s ease;
+        }
+
+        .form-input:focus {
+            background: rgba(255, 255, 255, 0.05);
+            border-color: var(--input-focus);
+            box-shadow: 0 0 0 1px var(--input-focus);
+        }
+
+        .form-input::placeholder {
+            color: #555;
+        }
+
+        /* Premium solid button */
+        .btn-submit {
+            width: 100%;
+            background: var(--accent);
+            color: var(--bg-base);
+            border: none;
+            padding: 12px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            margin-top: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+        
+        .btn-submit:hover {
+            background: var(--accent-hover);
+            transform: translateY(-1px);
+        }
+
+        .btn-submit:active {
+            transform: translateY(0);
+        }
+
+        /* Clean Error Box */
+        #login-error-box {
+            display: none;
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.2);
+            color: #ef4444;
+            padding: 12px;
+            border-radius: 8px;
+            font-size: 13px;
+            margin-bottom: 24px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .meta-footer {
+            margin-top: 32px;
+            text-align: center;
+            font-size: 12px;
+            color: #444;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Static, subtle lighting -->
+    <div class="ambient-spotlight"></div>
+
+    <!-- Minimalist Branding -->
+    <div class="brand-header">
+        <div class="brand-icon">
+            <i data-lucide="layers" style="width: 16px; height: 16px;"></i>
+        </div>
+        <div class="brand-text">Avito Max Parser</div>
+    </div>
+
+    <!-- Centered Login Component -->
+    <div class="login-wrapper">
+        <div class="login-card">
+            <div class="card-header">
+                <h1>Вход в систему</h1>
+                <p>Введите учетные данные для доступа к панели управления Avito Max Parser.</p>
+            </div>
+            
+            <div id="login-error-box" style="display: none;">
+                <i data-lucide="alert-circle" style="width: 16px; height: 16px;"></i>
+                <span id="login-error-text">Неверный логин или пароль</span>
+            </div>
+
+            <form id="login-form" onsubmit="handleLogin(event)">
+                
+                <div class="form-group">
+                    <label class="form-label">Имя пользователя</label>
+                    <input type="text" id="input-username" class="form-input" required autocomplete="username" placeholder="admin">
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Пароль</label>
+                    <input type="password" id="input-password" class="form-input" required autocomplete="current-password" placeholder="••••••••">
+                </div>
+
+                <button type="submit" id="btn-login-submit" class="btn-submit">
+                    Продолжить
+                    <i data-lucide="arrow-right" style="width: 16px; height: 16px;"></i>
+                </button>
+            </form>
+        </div>
+
+        <div class="meta-footer">
+            Avito Max Parser v2.4.0 • Enterprise Edition
+        </div>
+    </div>
+
+    <script>
+        lucide.createIcons();
+
+        async function handleLogin(e) {
+            e.preventDefault();
+            const btn = document.getElementById('btn-login-submit');
+            const errorBox = document.getElementById('login-error-box');
+            const errorText = document.getElementById('login-error-text');
+            const user = document.getElementById('input-username').value;
+            const pass = document.getElementById('input-password').value;
+
+            btn.disabled = true;
+            btn.innerHTML = '<i data-lucide="loader-2" class="lucide-spin" style="width: 16px; height: 16px;"></i> Вход...';
+            lucide.createIcons();
+            errorBox.style.display = 'none';
+
+            try {
+                const res = await fetch('/api/auth/login', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        username: user,
+                        password: pass
+                    })
+                });
+
+                if (res.ok) {
+                    const data = await res.json();
+                    localStorage.setItem('access_token', data.access_token);
+                    btn.innerHTML = '<i data-lucide="check" style="width: 16px; height: 16px;"></i> Успешно';
+                    lucide.createIcons();
+                    btn.style.background = '#10b981';
+                    btn.style.color = '#ffffff';
+                    setTimeout(() => window.location.href = '/', 500);
+                } else {
+                    const err = await res.json();
+                    errorText.textContent = err.detail || 'Ошибка авторизации';
+                    errorBox.style.display = 'flex';
+                    btn.disabled = false;
+                    btn.innerHTML = 'Продолжить <i data-lucide="arrow-right" style="width: 16px; height: 16px;"></i>';
+                    lucide.createIcons();
+                }
+            } catch (err) {
+                errorText.textContent = 'Ошибка соединения с сервером';
+                errorBox.style.display = 'flex';
+                btn.disabled = false;
+                btn.innerHTML = 'Продолжить <i data-lucide="arrow-right" style="width: 16px; height: 16px;"></i>';
+                lucide.createIcons();
+            }
+        }
+    </script>
+</body>
+</html>
