@@ -1,6 +1,6 @@
 <div align="center">
 
-# ⚡ AVITO MAX PARSER & AI DEAL SCORING ENGINE
+# ⚡ AVITO MAX PARSER 
 
 ### Профессиональный автономный комбайн мониторинга, парсинга и нейросетевой оценки выгодности лотов Авито в реальном времени
 
