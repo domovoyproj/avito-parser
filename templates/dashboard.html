@@ -308,7 +308,7 @@
       </a>
     </div>
 
-    <div id="dashboard-top-deals-grid" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3.5">
+    <div id="dashboard-top-deals-grid" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3.5">
       <div class="col-span-full py-8 text-center text-slate-500 text-xs font-mono">Поиск лучших предложений...</div>
     </div>
   </div>
@@ -324,7 +324,7 @@
       </a>
     </div>
 
-    <div id="dashboard-recent-items-grid" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3.5">
+    <div id="dashboard-recent-items-grid" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3.5">
       <div class="col-span-full py-8 text-center text-slate-500 text-xs font-mono">Загрузка товаров...</div>
     </div>
   </div>
@@ -547,8 +547,8 @@ function renderTopDealsWidget(deals) {
     const s = it.deal_score || 50;
     const isGem = s >= 85 || it.deal_grade === 'GEM';
     const badgeHtml = isGem
-      ? `<span class="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-emerald-500 text-slate-950 shadow">💎 ${s} GEM</span>`
-      : `<span class="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-orange-500 text-white shadow">🔥 ${s} HOT</span>`;
+      ? `<span class="px-1.5 py-0.5 rounded-md text-[9px] font-mono font-bold bg-[#0a0a0f]/90 text-emerald-300 border border-emerald-500/50 shadow-md backdrop-blur-md">💎 ${s} GEM</span>`
+      : `<span class="px-1.5 py-0.5 rounded-md text-[9px] font-mono font-bold bg-[#0a0a0f]/90 text-amber-300 border border-amber-500/50 shadow-md backdrop-blur-md">🔥 ${s} HOT</span>`;
 
     return `
       <div class="product-card group flex flex-col justify-between border-emerald-500/20 hover:border-emerald-500/40">
@@ -566,9 +566,9 @@ function renderTopDealsWidget(deals) {
           </div>
         </div>
         <div class="p-2.5 pt-0">
-          <a href="${it.url}" target="_blank" class="w-full py-1 rounded bg-slate-900 hover:bg-slate-800 text-emerald-400 border border-emerald-500/30 text-[11px] font-medium transition flex items-center justify-center gap-1">
+          <a href="${it.url}" target="_blank" class="w-full h-7 px-2 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 hover:text-emerald-200 border border-emerald-500/30 text-xs font-medium transition flex items-center justify-center gap-1.5 shadow-sm">
             <span>Открыть</span>
-            <i data-lucide="external-link" class="w-3 h-3"></i>
+            <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
           </a>
         </div>
       </div>
@@ -642,11 +642,11 @@ function renderRecentItemsGrid(items) {
   }
 
   container.innerHTML = items.map(item => `
-    <div class="product-card group">
+    <div class="product-card group flex flex-col justify-between">
       <div class="relative aspect-[4/3] bg-slate-900 overflow-hidden border-b border-white/[0.04]">
         <img src="${item.main_image || '/static/img/no-image.svg'}" class="w-full h-full object-cover group-hover:scale-105 transition-all duration-300" onerror="this.src='/static/img/no-image.svg'">
         ${item.delivery_available ? `
-          <span class="absolute top-2 right-2 px-1.5 py-0.5 rounded bg-blue-600/90 text-white text-[9px] font-mono font-bold shadow">ДОСТАВКА</span>
+          <span class="absolute top-2 right-2 px-1.5 py-0.5 rounded-md bg-[#0a0a0f]/90 text-slate-200 text-[9px] font-mono font-semibold border border-white/20 backdrop-blur-md shadow-md">🚚 ДОСТАВКА</span>
         ` : ''}
       </div>
       <div class="p-3 flex-1 flex flex-col justify-between">
@@ -654,10 +654,11 @@ function renderRecentItemsGrid(items) {
           <div class="font-semibold text-slate-200 text-xs line-clamp-2" title="${item.title}">${item.title}</div>
           <div class="text-sm font-bold text-white font-mono mt-1.5">${formatPrice(item.price)}</div>
         </div>
-        <div class="mt-2.5 pt-2 border-t border-white/[0.04] flex items-center justify-between text-[10px] text-slate-400">
-          <span class="truncate max-w-[85px] font-mono">${item.address || item.metro || 'Россия'}</span>
-          <a href="${item.url}" target="_blank" class="text-slate-400 hover:text-blue-400 transition">
-            <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
+        <div class="mt-2.5 pt-2 border-t border-white/[0.06] flex items-center justify-between gap-2 text-[10px] text-slate-400">
+          <span class="truncate max-w-[120px] font-mono">${item.address || item.metro || 'Россия'}</span>
+          <a href="${item.url}" target="_blank" class="h-6 px-2 rounded-md bg-blue-600/15 hover:bg-blue-600/25 text-blue-400 hover:text-blue-300 border border-blue-500/25 text-[11px] font-medium transition flex items-center gap-1">
+            <span>Авито</span>
+            <i data-lucide="external-link" class="w-3 h-3"></i>
           </a>
         </div>
       </div>

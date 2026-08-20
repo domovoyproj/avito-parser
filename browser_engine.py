@@ -35,8 +35,13 @@ class AvitoBrowserEngine:
                 "--no-sandbox",
                 "--disable-dev-shm-usage",
                 "--disable-infobars",
+                "--disable-background-timer-throttling",
+                "--disable-backgrounding-occluded-windows",
+                "--disable-renderer-backgrounding",
+                "--mute-audio",
+                "--no-first-run",
+                "--no-default-browser-check",
                 "--window-size=1920,1080",
-                "--start-maximized",
                 "--disable-extensions",
             ]
         )

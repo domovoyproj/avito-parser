@@ -42,10 +42,10 @@
   <div class="panel-card p-4 space-y-3.5">
     
     <!-- Top Row: Search & Filters -->
-    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-3">
+    <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-12 gap-2.5">
       
       <!-- Text search (5 cols) -->
-      <div class="lg:col-span-5 relative">
+      <div class="sm:col-span-2 xl:col-span-5 relative">
         <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-500">
           <i data-lucide="search" class="w-3.5 h-3.5"></i>
         </div>
@@ -54,39 +54,39 @@
           id="filter-query" 
           placeholder="Поиск по названию, адресу, параметрам..." 
           oninput="debounceSearch()"
-          class="w-full app-input pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none"
+          class="w-full app-input pl-9 pr-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none"
         >
       </div>
 
       <!-- Search Query Select (3 cols) -->
-      <div class="lg:col-span-3">
+      <div class="xl:col-span-3">
         <select 
           id="filter-search-id" 
           onchange="loadItems(1)"
-          class="w-full app-input px-3 py-2 text-xs text-slate-200 focus:outline-none font-mono"
+          class="w-full app-input px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none font-mono"
         >
           <option value="">Все задачи поиска</option>
         </select>
       </div>
 
       <!-- Sort By (2 cols) -->
-      <div class="lg:col-span-2">
+      <div class="xl:col-span-2">
         <select 
           id="filter-sort-by" 
           onchange="loadItems(1)"
-          class="w-full app-input px-3 py-2 text-xs text-slate-200 focus:outline-none"
+          class="w-full app-input px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none font-mono"
         >
-          <option value="deal_score_desc" selected>💎 По AI Score (Лучшие)</option>
+          <option value="deal_score_desc" selected>💎 По AI Score</option>
           <option value="newest">Сначала новые</option>
           <option value="oldest">Сначала старые</option>
           <option value="price_asc">Цена: по возрастанию</option>
           <option value="price_desc">Цена: по убыванию</option>
-          <option value="discount_desc">По размеру скидки</option>
+          <option value="discount_desc">По скидке</option>
         </select>
       </div>
 
       <!-- View Switcher (2 cols) -->
-      <div class="lg:col-span-2 flex items-center justify-end gap-1 bg-[#111] p-1 rounded-lg border border-[#222]">
+      <div class="xl:col-span-2 flex items-center gap-1 bg-[#111] p-0.5 rounded-lg border border-[#222]">
         <button onclick="setViewMode('grid')" id="btn-view-grid" class="flex-1 py-1 rounded text-xs font-semibold flex items-center justify-center gap-1.5 transition bg-white text-black shadow-sm">
           <i data-lucide="layout-grid" class="w-3.5 h-3.5"></i>
           <span>Сетка</span>
@@ -99,83 +99,89 @@
 
     </div>
 
-    <!-- Bottom Row: Price Range & Toggles -->
-    <div class="flex flex-wrap items-center justify-between gap-3 pt-2.5 border-t border-white/[0.04] text-xs">
+    <!-- Bottom Row: Price Range, Grades & Toggles -->
+    <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pt-3 border-t border-white/[0.06] text-xs">
       
-      <div class="flex flex-wrap items-center gap-3">
-        <!-- Min Price -->
-        <div class="flex items-center gap-1.5 font-mono">
-          <span class="text-slate-500 text-[11px]">Цена от:</span>
-          <input 
-            type="number" 
-            id="filter-min-price" 
-            placeholder="0" 
-            onchange="loadItems(1)"
-            class="w-24 app-input px-2.5 py-1 text-xs text-white text-right font-mono"
-          >
-          <span class="text-slate-500 text-[11px]">₽</span>
-        </div>
-
-        <!-- Max Price -->
-        <div class="flex items-center gap-1.5 font-mono">
-          <span class="text-slate-500 text-[11px]">до:</span>
-          <input 
-            type="number" 
-            id="filter-max-price" 
-            placeholder="Макс" 
-            onchange="loadItems(1)"
-            class="w-28 app-input px-2.5 py-1 text-xs text-white text-right font-mono"
-          >
-          <span class="text-slate-500 text-[11px]">₽</span>
-        </div>
+      <!-- Left Filters Group -->
+      <div class="flex flex-wrap items-center gap-2.5">
+        
         <!-- Filter: Deal Grade -->
-        <div class="flex items-center gap-1.5 font-mono ml-1">
-          <span class="text-slate-500 text-[11px]">AI Оценка:</span>
-          <select id="filter-deal-grade" onchange="loadItems(1)" class="app-input px-2.5 py-1 text-xs text-slate-200 focus:outline-none font-mono">
+        <div class="flex items-center gap-1.5 font-mono">
+          <span class="text-slate-500 text-[11px]">AI:</span>
+          <select id="filter-deal-grade" onchange="loadItems(1)" class="app-input px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none font-mono">
             <option value="">Все оценки</option>
-            <option value="GEM">💎 Только GEM (85+)</option>
-            <option value="HOT">🔥 GEM & HOT (70+)</option>
+            <option value="GEM">💎 GEM (85+)</option>
+            <option value="HOT">🔥 HOT & GEM (70+)</option>
             <option value="FAIR">⚖️ FAIR и выше (50+)</option>
             <option value="CAUTION">⚠️ CAUTION (&lt;50)</option>
           </select>
         </div>
 
-        <!-- Checkbox: Favorites only -->
-        <label class="flex items-center gap-1.5 cursor-pointer select-none text-slate-300 ml-1">
-          <input type="checkbox" id="filter-favorites-only" onchange="loadItems(1)" class="w-3.5 h-3.5 text-amber-500 rounded bg-slate-900 border-slate-700">
-          <span class="text-[11px]">⭐ Избранное</span>
-        </label>
+        <!-- Price Range -->
+        <div class="flex items-center gap-1.5 font-mono">
+          <span class="text-slate-500 text-[11px]">Цена:</span>
+          <input 
+            type="number" 
+            id="filter-min-price" 
+            placeholder="0" 
+            onchange="loadItems(1)"
+            class="w-20 app-input px-2 py-1.5 text-xs text-white text-right font-mono"
+          >
+          <span class="text-slate-600 text-xs">—</span>
+          <input 
+            type="number" 
+            id="filter-max-price" 
+            placeholder="Макс" 
+            onchange="loadItems(1)"
+            class="w-24 app-input px-2 py-1.5 text-xs text-white text-right font-mono"
+          >
+          <span class="text-slate-500 text-[11px]">₽</span>
+        </div>
 
-        <!-- Checkbox: Discounts only -->
-        <label class="flex items-center gap-1.5 cursor-pointer select-none text-slate-300 ml-1">
-          <input type="checkbox" id="filter-discount-only" onchange="loadItems(1)" class="w-3.5 h-3.5 text-blue-600 rounded bg-slate-900 border-slate-700">
-          <span class="text-[11px]">📉 Со скидкой</span>
-        </label>
+        <div class="h-4 w-px bg-white/[0.08] hidden sm:block mx-0.5"></div>
 
-        <!-- Checkbox: Delivery only -->
-        <label class="flex items-center gap-1.5 cursor-pointer select-none text-slate-300 ml-1">
-          <input type="checkbox" id="filter-delivery-only" onchange="loadItems(1)" class="w-3.5 h-3.5 text-blue-600 rounded bg-slate-900 border-slate-700">
-          <span class="text-[11px]">Авито Доставка</span>
-        </label>
+        <!-- Toggles as clean badge pills -->
+        <div class="flex flex-wrap items-center gap-1.5">
+          <!-- Checkbox: Favorites only -->
+          <label class="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.06] cursor-pointer select-none text-slate-300 transition text-[11px]">
+            <input type="checkbox" id="filter-favorites-only" onchange="loadItems(1)" class="w-3.5 h-3.5 text-amber-500 rounded bg-slate-900 border-slate-700">
+            <span>⭐ Избранное</span>
+          </label>
 
-        <!-- Checkbox: Hide Reserved -->
-        <label class="flex items-center gap-1.5 cursor-pointer select-none text-slate-300 ml-1" title="Скрыть товары, которые уже оформлены в доставку другим покупателем">
-          <input type="checkbox" id="filter-hide-reserved" checked onchange="loadItems(1)" class="w-3.5 h-3.5 text-amber-500 rounded bg-slate-900 border-slate-700">
-          <span class="text-[11px]">🔒 Скрыть зарезервированные</span>
-        </label>
+          <!-- Checkbox: Discounts only -->
+          <label class="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.06] cursor-pointer select-none text-slate-300 transition text-[11px]">
+            <input type="checkbox" id="filter-discount-only" onchange="loadItems(1)" class="w-3.5 h-3.5 text-blue-600 rounded bg-slate-900 border-slate-700">
+            <span>📉 Со скидкой</span>
+          </label>
+
+          <!-- Checkbox: Delivery only -->
+          <label class="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.06] cursor-pointer select-none text-slate-300 transition text-[11px]">
+            <input type="checkbox" id="filter-delivery-only" onchange="loadItems(1)" class="w-3.5 h-3.5 text-blue-600 rounded bg-slate-900 border-slate-700">
+            <span>🚚 Доставка</span>
+          </label>
+
+          <!-- Checkbox: Hide Reserved -->
+          <label class="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.06] cursor-pointer select-none text-slate-300 transition text-[11px]" title="Скрыть зарезервированные">
+            <input type="checkbox" id="filter-hide-reserved" checked onchange="loadItems(1)" class="w-3.5 h-3.5 text-amber-500 rounded bg-slate-900 border-slate-700">
+            <span>🔒 Без брони</span>
+          </label>
+        </div>
+
       </div>
 
-      <!-- Batch Actions & Recalculate -->
-      <div class="flex items-center gap-3">
-        <button onclick="recalculateAllScores()" id="btn-recalc-scores" class="text-blue-400 hover:text-blue-300 text-[11px] font-medium flex items-center gap-1 transition">
+      <!-- Right Actions: Recalculate & Clear -->
+      <div class="flex items-center gap-2.5 flex-shrink-0 pt-2 lg:pt-0 border-t lg:border-t-0 border-white/[0.04]">
+        <button onclick="recalculateAllScores()" id="btn-recalc-scores" class="px-2.5 py-1 rounded-lg bg-blue-600/10 hover:bg-blue-600/20 text-blue-400 hover:text-blue-300 border border-blue-500/20 text-[11px] font-medium flex items-center gap-1.5 transition shadow-sm">
           <i data-lucide="sparkles" class="w-3 h-3 text-blue-400"></i>
           <span>Пересчитать AI Score</span>
         </button>
-        <button onclick="clearAllDatabase()" class="text-rose-400/80 hover:text-rose-300 text-[11px] font-medium flex items-center gap-1 transition">
+        <button onclick="clearAllDatabase()" class="px-2.5 py-1 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 border border-rose-500/20 text-[11px] font-medium flex items-center gap-1.5 transition shadow-sm">
           <i data-lucide="trash-2" class="w-3 h-3"></i>
-          <span>Очистить базу</span>
+          <span>Очистить</span>
         </button>
       </div>
+
+    </div>
 
   </div>
 
@@ -192,7 +198,6 @@
       <button onclick="executeBatchAction('delete')" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-rose-500/20 text-rose-300 border border-white/[0.08] text-xs font-medium transition flex items-center gap-1">
         <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
         <span>Удалить выбранные</span>
-      </button>
       <button onclick="clearSelection()" class="px-2.5 py-1 rounded text-slate-400 hover:text-white text-xs font-medium transition">
         Отменить выбор
       </button>
@@ -200,10 +205,9 @@
   </div>
 
   <!-- ITEMS CONTAINER (GRID VIEW) -->
-  <div id="items-grid-container" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+  <div id="items-grid-container" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4">
     <div class="col-span-full py-16 text-center text-slate-500 text-xs font-mono">Загрузка объявлений...</div>
   </div>
-
   <!-- ITEMS CONTAINER (TABLE VIEW) -->
   <div id="items-table-container" class="hidden panel-card p-4 overflow-hidden">
     <div class="overflow-x-auto">
@@ -587,13 +591,13 @@ function getGradeBadgeHtml(score, grade) {
   const s = score !== undefined && score !== null ? score : 50;
   const g = grade || (s >= 85 ? 'GEM' : (s >= 70 ? 'HOT' : (s >= 50 ? 'FAIR' : 'CAUTION')));
   if (s >= 85 || g === 'GEM') {
-    return `<span class="px-2 py-0.5 rounded text-[10px] font-mono font-semibold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 flex items-center gap-1 backdrop-blur-sm">💎 ${s} GEM</span>`;
+    return `<span class="px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-[#0a0a0f]/90 text-emerald-300 border border-emerald-500/50 shadow-md backdrop-blur-md flex items-center gap-1">💎 ${s} GEM</span>`;
   } else if (s >= 70 || g === 'HOT') {
-    return `<span class="px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold bg-amber-500/15 text-amber-300 border border-amber-500/30 flex items-center gap-1 backdrop-blur-sm">🔥 ${s} HOT</span>`;
+    return `<span class="px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-[#0a0a0f]/90 text-amber-300 border border-amber-500/50 shadow-md backdrop-blur-md flex items-center gap-1">🔥 ${s} HOT</span>`;
   } else if (s >= 50 || g === 'FAIR') {
-    return `<span class="px-1.5 py-0.5 rounded text-[9px] font-mono font-medium bg-[#1a1a1a]/80 text-slate-400 border border-[#333] backdrop-blur-sm">⚖️ ${s}</span>`;
+    return `<span class="px-1.5 py-0.5 rounded-md text-[9px] font-mono font-medium bg-[#0a0a0f]/90 text-slate-300 border border-white/20 shadow-md backdrop-blur-md flex items-center gap-1">⚖️ ${s}</span>`;
   } else {
-    return `<span class="px-1.5 py-0.5 rounded text-[9px] font-mono font-medium bg-rose-500/15 text-rose-300 border border-rose-500/30 backdrop-blur-sm">⚠️ ${s}</span>`;
+    return `<span class="px-1.5 py-0.5 rounded-md text-[9px] font-mono font-medium bg-[#0a0a0f]/90 text-rose-300 border border-rose-500/50 shadow-md backdrop-blur-md flex items-center gap-1">⚠️ ${s}</span>`;
   }
 }
 
@@ -610,41 +614,44 @@ function renderGrid(items) {
     const isSelected = selectedItemIds.has(String(it.id));
 
     return `
-      <div class="product-card group relative">
-        <div class="relative aspect-[4/3] bg-slate-950 overflow-hidden border-b border-white/[0.04]">
-          <img src="${it.main_image || '/static/img/no-image.svg'}" class="w-full h-full object-cover group-hover:scale-105 transition-all duration-300" onerror="this.src='/static/img/no-image.svg'">
-          
-          <!-- Checkbox overlay -->
-          <div class="absolute top-2 left-2 z-10">
-            <input type="checkbox" ${isSelected ? 'checked' : ''} onchange="toggleItemSelection('${it.id}', this)" class="item-select-checkbox w-4 h-4 text-blue-600 rounded bg-slate-900/90 border-slate-700 cursor-pointer shadow">
+      <div class="product-card group relative flex flex-col justify-between">
+        <div>
+          <div class="relative aspect-[4/3] bg-slate-950 overflow-hidden border-b border-white/[0.04]">
+            <img src="${it.main_image || '/static/img/no-image.svg'}" class="w-full h-full object-cover group-hover:scale-105 transition-all duration-300" onerror="this.src='/static/img/no-image.svg'">
+            
+            <!-- Checkbox overlay -->
+            <div class="absolute top-2 left-2 z-10">
+              <label class="flex items-center justify-center p-1 rounded-md bg-[#0a0a0f]/80 hover:bg-[#0a0a0f] backdrop-blur-md border border-white/15 cursor-pointer shadow transition">
+                <input type="checkbox" ${isSelected ? 'checked' : ''} onchange="toggleItemSelection('${it.id}', this)" class="item-select-checkbox w-3.5 h-3.5 text-blue-600 rounded bg-slate-900 border-slate-700 cursor-pointer">
+              </label>
+            </div>
+
+            <!-- Badges -->
+            <div class="absolute top-2 right-2 flex flex-col gap-1 items-end z-10">
+              ${getGradeBadgeHtml(it.deal_score, it.deal_grade)}
+
+              ${it.is_reserved ? `
+                <span class="px-1.5 py-0.5 rounded-md text-[9px] font-mono font-bold bg-[#0a0a0f]/90 text-amber-300 border border-amber-500/40 backdrop-blur-md shadow-md">
+                  🔒 ЗАРЕЗЕРВИРОВАН
+                </span>
+              ` : ''}
+
+              ${hasDiscount ? `
+                <span class="px-1.5 py-0.5 rounded-md text-[9px] font-mono font-bold bg-[#0a0a0f]/90 text-emerald-400 border border-emerald-500/40 backdrop-blur-md shadow-md">
+                  -${discountPct}%
+                </span>
+              ` : ''}
+              ${it.delivery_available ? `
+                <span class="px-1.5 py-0.5 rounded-md bg-[#0a0a0f]/90 text-slate-200 text-[9px] font-mono font-semibold border border-white/20 backdrop-blur-md shadow-md">
+                  🚚 ДОСТАВКА
+                </span>
+              ` : ''}
+            </div>
           </div>
 
-          <!-- Badges -->
-          <div class="absolute top-2 right-2 flex flex-col gap-1 items-end z-10">
-            ${getGradeBadgeHtml(it.deal_score, it.deal_grade)}
-
-            ${it.is_reserved ? `
-              <span class="px-1.5 py-0.5 rounded text-[9px] font-mono font-medium bg-amber-500/10 text-amber-400 border border-amber-500/20 backdrop-blur-sm">
-                🔒 ЗАРЕЗЕРВИРОВАН
-              </span>
-            ` : ''}
-
-            ${hasDiscount ? `
-              <span class="px-1.5 py-0.5 rounded text-[9px] font-mono font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 backdrop-blur-sm">
-                -${discountPct}%
-              </span>
-            ` : ''}
-            ${it.delivery_available ? `
-              <span class="px-1.5 py-0.5 rounded bg-white/10 text-slate-200 text-[9px] font-mono font-medium border border-white/15 backdrop-blur-sm">
-                ДОСТАВКА
-              </span>
-            ` : ''}
-          </div>
-        </div>
-
-        <div class="p-3.5 flex-1 flex flex-col justify-between">
-            <div class="flex items-start justify-between gap-1">
-              <div class="font-semibold text-slate-200 text-xs line-clamp-2" title="${it.title}">${it.title}</div>
+          <div class="p-3.5 pb-0">
+            <div class="flex items-start justify-between gap-1.5">
+              <div class="font-semibold text-slate-200 text-xs line-clamp-2 leading-snug" title="${it.title}">${it.title}</div>
               <button onclick="toggleFavorite('${it.id}', event)" class="btn-fav-${it.id} p-1 text-slate-500 hover:text-amber-400 transition flex-shrink-0" title="В избранное">
                 ${it.is_favorite 
                   ? '<i data-lucide="star" class="w-3.5 h-3.5 fill-amber-400 text-amber-400"></i>' 
@@ -661,22 +668,23 @@ function renderGrid(items) {
               ${it.address || it.metro || 'Россия'}
             </div>
           </div>
+        </div>
 
-          <div class="mt-3 pt-2.5 border-t border-white/[0.04] flex items-center justify-between gap-1.5">
-            <button onclick="openItemModal('${it.id}')" class="px-2 py-1 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 border border-white/[0.06] text-xs font-medium transition flex items-center gap-1">
-              <i data-lucide="eye" class="w-3 h-3"></i>
+        <div class="p-3 pt-2.5">
+          <div class="pt-2 border-t border-white/[0.06] flex items-center gap-1">
+            <button onclick="openItemModal('${it.id}')" class="flex-1 h-7 px-2 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-slate-300 hover:text-white border border-white/[0.08] text-[11px] font-medium transition flex items-center justify-center gap-1 shadow-sm" title="Детали и AI-анализ">
+              <i data-lucide="eye" class="w-3 h-3 text-slate-400"></i>
               <span>Детали</span>
             </button>
 
-            <div class="flex items-center gap-1">
-              <button onclick="hideItem('${it.id}', event)" class="p-1 rounded bg-slate-900 hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 border border-white/[0.06] transition" title="Скрыть объявление">
-                <i data-lucide="eye-off" class="w-3.5 h-3.5"></i>
-              </button>
-              <a href="${it.url}" target="_blank" class="text-xs font-medium text-blue-400 hover:text-blue-300 transition flex items-center gap-0.5 ml-1">
-                <span>Авито</span>
-                <i data-lucide="external-link" class="w-3 h-3"></i>
-              </a>
-            </div>
+            <a href="${it.url}" target="_blank" class="flex-1 h-7 px-2 rounded-lg bg-blue-600/15 hover:bg-blue-600/25 text-blue-400 hover:text-blue-300 border border-blue-500/30 text-[11px] font-medium transition flex items-center justify-center gap-1 shadow-sm" title="Открыть на Авито">
+              <span>Авито</span>
+              <i data-lucide="external-link" class="w-3 h-3"></i>
+            </a>
+
+            <button onclick="hideItem('${it.id}', event)" class="h-7 w-7 flex-shrink-0 rounded-lg bg-white/[0.04] hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 border border-white/[0.08] hover:border-rose-500/30 transition flex items-center justify-center shadow-sm" title="Скрыть объявление">
+              <i data-lucide="eye-off" class="w-3.5 h-3.5"></i>
+            </button>
           </div>
         </div>
       </div>
@@ -734,16 +742,16 @@ function renderTable(items) {
         <td class="py-2.5 px-3 text-[11px] text-slate-400 whitespace-nowrap">
           ${formatRelativeTime(it.created_at)}
         </td>
-        <td class="py-2.5 px-3 text-right space-x-1 whitespace-nowrap font-sans">
-          <button onclick="toggleFavorite('${it.id}', event)" class="btn-fav-${it.id} p-1.5 rounded bg-slate-900 text-slate-400 hover:text-amber-400 border border-white/[0.06] transition" title="В избранное">
+        <td class="py-2.5 px-3 text-right space-x-1.5 whitespace-nowrap font-sans">
+          <button onclick="toggleFavorite('${it.id}', event)" class="btn-fav-${it.id} inline-flex items-center justify-center h-7 w-7 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-slate-400 hover:text-amber-400 border border-white/[0.08] transition shadow-sm" title="В избранное">
             ${it.is_favorite 
               ? '<i data-lucide="star" class="w-3.5 h-3.5 fill-amber-400 text-amber-400"></i>' 
               : '<i data-lucide="star" class="w-3.5 h-3.5"></i>'}
           </button>
-          <button onclick="openItemModal('${it.id}')" class="p-1.5 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 border border-white/[0.06] transition" title="Детали">
+          <button onclick="openItemModal('${it.id}')" class="inline-flex items-center justify-center h-7 w-7 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-slate-300 hover:text-white border border-white/[0.08] transition shadow-sm" title="Детали">
             <i data-lucide="eye" class="w-3.5 h-3.5"></i>
           </button>
-          <a href="${it.url}" target="_blank" class="inline-block p-1.5 rounded bg-slate-900 hover:bg-slate-800 text-blue-400 border border-white/[0.06] transition" title="Открыть на Авито">
+          <a href="${it.url}" target="_blank" class="inline-flex items-center justify-center h-7 w-7 rounded-lg bg-blue-600/15 hover:bg-blue-600/25 text-blue-400 hover:text-blue-300 border border-blue-500/30 transition shadow-sm" title="Открыть на Авито">
             <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
           </a>
         </td>

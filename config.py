@@ -10,7 +10,7 @@ load_dotenv(ENV_FILE)
 
 
 class ScraperConfig(BaseModel):
-    headless: bool = Field(default=False, description="Запуск браузера в скрытом режиме (False для ручного прохождения капчи)")
+    headless: bool = Field(default=True, description="Запуск браузера в скрытом режиме (Headless)")
     timeout_ms: int = Field(default=45000, description="Таймаут загрузки страницы в мс")
     page_delay_min: float = Field(default=2.0, description="Минимальная пауза между страницами в сек")
     page_delay_max: float = Field(default=5.0, description="Максимальная пауза между страницами в сек")
