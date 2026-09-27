@@ -1,5 +1,6 @@
 @echo off
 chcp 65001 >nul
+cd /d "%~dp0"
 title Avito Max Parser — Windows Auto-Installer
 color 0B
 
@@ -8,44 +9,47 @@ echo        AVITO MAX PARSER ^& AI DEAL SCORING ENGINE — WINDOWS INSTALLER
 echo ==============================================================================
 echo.
 
-:: 1. Check Python
+rem 1. Check Python
 echo [*] Проверка наличия Python 3...
-python --version >nul 2>&1
-if %errorlevel% neq 0 (
-    color 0C
-    echo [ERROR] Python не обнаружен в системе!
-    echo Пожалуйста, установите Python 3.10 или выше с официального сайта: https://www.python.org/downloads/
-    echo ОБЯЗАТЕЛЬНО отметьте галочку "Add Python to PATH" при установке.
-    echo.
-    pause
-    exit /b 1
-)
-
-for /f "tokens=2 delims= " %%i in ('python --version 2^>^&1') do set PY_VER=%%i
-echo [+] Обнаружен Python: %PY_VER%
-echo.
-
-:: 2. Create Virtual Environment
-echo [*] Создание виртуального окружения (venv)...
-if not exist "venv" (
-    python -m venv venv
-    if %errorlevel% neq 0 (
+where py.exe >nul 2>&1
+if %errorlevel% equ 0 (
+    set "SYS_PYTHON=py -3"
+) else (
+    where python.exe >nul 2>&1
+    if %errorlevel% equ 0 (
+        set "SYS_PYTHON=python"
+    ) else (
         color 0C
-        echo [ERROR] Не удалось создать виртуальное окружение!
+        echo [ERROR] Python не обнаружен в системе!
+        echo Пожалуйста, установите Python 3.10+ и отметьте "Add Python to PATH".
         pause
         exit /b 1
     )
-    echo [+] Виртуальное окружение venv успешно создано.
+)
+
+rem 2. Create Virtual Environment (.venv)
+echo [*] Создание виртуального окружения (.venv)...
+if not exist ".venv\Scripts\python.exe" (
+    %SYS_PYTHON% -m venv .venv
+    if %errorlevel% neq 0 (
+        color 0C
+        echo [ERROR] Не удалось создать виртуальное окружение .venv!
+        pause
+        exit /b 1
+    )
+    echo [+] Виртуальное окружение .venv успешно создано.
 ) else (
-    echo [+] Виртуальное окружение venv уже существует.
+    echo [+] Виртуальное окружение .venv уже существует.
 )
 echo.
 
-:: 3. Upgrade pip and install requirements
+set "VENV_PY=%~dp0.venv\Scripts\python.exe"
+set "VENV_PIP=%~dp0.venv\Scripts\pip.exe"
+
+rem 3. Upgrade pip and install requirements
 echo [*] Обновление pip и установка зависимостей...
-call venv\Scripts\activate.bat
-python -m pip install --upgrade pip --quiet
-pip install -r requirements.txt
+"%VENV_PY%" -m pip install --upgrade pip --quiet
+"%VENV_PY%" -m pip install -r requirements.txt
 if %errorlevel% neq 0 (
     color 0C
     echo [ERROR] Ошибка при установке Python-пакетов из requirements.txt!
@@ -54,14 +58,13 @@ if %errorlevel% neq 0 (
 )
 echo [+] Все зависимости успешно установлены.
 echo.
-
-:: 4. Install Playwright Chromium
+rem 4. Install Playwright Chromium
 echo [*] Установка браузерного движка Playwright Chromium...
-playwright install chromium
+"%VENV_PY%" -m playwright install chromium
 if %errorlevel% neq 0 (
     color 0E
-    echo [WARN] Возникла заминка при установке Chromium. Повторная попытка с флагом --with-deps...
-    python -m playwright install chromium
+    echo [WARN] Повторная попытка playwright install с флагом --with-deps...
+    "%VENV_PY%" -m playwright install --with-deps chromium
 )
 echo [+] Браузер Chromium готов к фоновому парсингу.
 echo.
