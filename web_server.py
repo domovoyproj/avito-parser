@@ -1634,18 +1634,18 @@ async def api_clear_logs():
 def run_server(host: Optional[str] = None, port: Optional[int] = None, open_browser: bool = True):
     h = host or config.web.host
     p = port or config.web.port
+    browser_host = "127.0.0.1" if h in ("0.0.0.0", "::") else h
 
     if open_browser and config.web.auto_open_browser:
         import webbrowser
         def _open():
             time.sleep(1.2)
-            webbrowser.open(f"http://{h}:{p}")
+            webbrowser.open(f"http://{browser_host}:{p}")
         import threading
         threading.Thread(target=_open, daemon=True).start()
 
-    print(f"\n🌐 [Avito Parser Pro] Запуск веб-панели: http://{h}:{p}\n")
+    print(f"\n🌐 [Avito Max Parser] Веб-панель доступна по адресу: http://{browser_host}:{p}\n")
     uvicorn.run("web_server:app", host=h, port=p, reload=False, log_level="info")
-
 
 if __name__ == "__main__":
     run_server()
