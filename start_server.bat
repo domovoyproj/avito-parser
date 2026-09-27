@@ -1,34 +1,34 @@
 @echo off
-chcp 65001 >nul
 cd /d "%~dp0"
-title Avito Max Parser — Web Control Terminal
-color 0A
+title Avito Max Parser - Web Server
 
-if exist ".venv\Scripts\python.exe" (
-    set "PY_BIN=.venv\Scripts\python.exe"
-) else if exist "venv\Scripts\python.exe" (
-    set "PY_BIN=venv\Scripts\python.exe"
-) else (
-    echo Виртуальное окружение не найдено. Запуск установщика...
-    call install_windows.bat
-    if exist ".venv\Scripts\python.exe" (
-        set "PY_BIN=.venv\Scripts\python.exe"
-    ) else if exist "venv\Scripts\python.exe" (
-        set "PY_BIN=venv\Scripts\python.exe"
-    ) else (
-        echo Ошибка: Python окружение не настроено.
-        pause
-        exit /b 1
-    )
+if exist "%~dp0.venv\Scripts\python.exe" (
+    "%~dp0.venv\Scripts\python.exe" web_server.py
+    goto :end
 )
 
-echo ==============================================================================
-echo                   ЗАПУСК ВЕБ-ПАНЕЛИ AVITO MAX PARSER
-echo ==============================================================================
-echo.
-echo [*] Сервер запускается на http://127.0.0.1:8000
-echo [*] Для остановки нажмите Ctrl + C
-echo.
+if exist "%~dp0venv\Scripts\python.exe" (
+    "%~dp0venv\Scripts\python.exe" web_server.py
+    goto :end
+)
 
-"%PY_BIN%" web_server.py
+echo [ERROR] Virtual environment not found (.venv or venv).
+echo Running install_windows.bat ...
+call "%~dp0install_windows.bat"
+
+if exist "%~dp0.venv\Scripts\python.exe" (
+    "%~dp0.venv\Scripts\python.exe" web_server.py
+    goto :end
+)
+
+if exist "%~dp0venv\Scripts\python.exe" (
+    "%~dp0venv\Scripts\python.exe" web_server.py
+    goto :end
+)
+
+echo [ERROR] Python environment setup failed.
+pause
+exit /b 1
+
+:end
 pause
