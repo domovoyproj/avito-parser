@@ -1,4 +1,5 @@
 # Python & Environment
+graphify-out/
 __pycache__/
 *.py[cod]
 *$py.class

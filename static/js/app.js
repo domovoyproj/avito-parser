@@ -1,3 +1,4 @@
+function escapeToastText(value) { const el = document.createElement("span"); el.textContent = String(value); return el.innerHTML; }
 // Avito Parser Pro - Core JavaScript Helpers
 
 // ==============================================================================
@@ -34,8 +35,8 @@ function showToast(message, type = 'info', title = '') {
   toast.innerHTML = `
     <div class="flex-shrink-0 mt-0.5">${iconHtml}</div>
     <div class="flex-1 text-sm">
-      <div class="font-semibold text-white">${title}</div>
-      <div class="text-slate-300 mt-0.5 text-xs">${message}</div>
+      <div class="font-semibold text-white">${escapeToastText(title)}</div>
+      <div class="text-slate-300 mt-0.5 text-xs">${escapeToastText(message)}</div>
     </div>
     <button onclick="dismissToast('${id}')" class="text-slate-400 hover:text-white transition">
       <i data-lucide="x" class="w-4 h-4"></i>
@@ -200,3 +201,18 @@ if (document.readyState === 'loading') {
 } else {
   initGlobalApp();
 }
+
+// Mobile navigation remains keyboard accessible and closes on Escape.
+const menuButton = document.getElementById('mobile-menu');
+function setMobileMenu(open) {
+  document.body.classList.toggle('nav-open', open);
+  menuButton?.setAttribute('aria-expanded', String(open));
+  const sidebar = document.getElementById('app-sidebar');
+  if (sidebar) sidebar.inert = window.innerWidth < 768 && !open;
+  if (open) sidebar?.querySelector('a')?.focus();
+}
+menuButton?.addEventListener('click', () => setMobileMenu(!document.body.classList.contains('nav-open')));
+document.querySelector('.nav-shade')?.addEventListener('click', () => { setMobileMenu(false); menuButton?.focus(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && document.body.classList.contains('nav-open')) { setMobileMenu(false); menuButton?.focus(); } });
+window.addEventListener('resize', () => setMobileMenu(false));
+setMobileMenu(false);

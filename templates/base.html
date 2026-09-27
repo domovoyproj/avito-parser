@@ -62,6 +62,7 @@
       border-bottom: 1px solid var(--border-subtle) !important;
     }
   </style>
+  <link rel="stylesheet" href="/static/css/workspace.css?v=1">
   {% block head %}{% endblock %}
 </head>
 <body class="h-full bg-[#050505] text-[#ededed] flex overflow-hidden font-sans antialiased selection:bg-white selection:text-black relative" style="background-color: #050505 !important; color: #ededed !important;">
@@ -70,7 +71,8 @@
   <div class="ambient-glow"></div>
 
   <!-- SIDEBAR -->
-  <aside class="w-64 solid-sidebar flex flex-col flex-shrink-0 z-30 select-none relative">
+  <button class="nav-shade" aria-label="Закрыть меню" tabindex="-1"></button>
+  <aside id="app-sidebar" class="w-64 solid-sidebar flex flex-col flex-shrink-0 z-30 select-none relative">
     
     <!-- Brand Logo Header -->
     <div class="h-16 flex items-center gap-3 px-5 border-b border-[var(--border-subtle)] bg-transparent">
@@ -81,7 +83,7 @@
         <div class="font-bold text-xs tracking-wider text-white uppercase flex items-center gap-1.5">
           Avito Max <span class="text-[9px] font-mono px-1 py-0.2 rounded bg-white/10 text-white font-semibold border border-[#333]">PARSER</span>
         </div>
-        <div class="text-[10px] text-slate-500 font-mono">AVITO DATA ENGINE</div>
+        <div class="text-[10px] text-slate-500 font-mono">Находите выгоднее</div>
       </div>
     </div>
 
@@ -91,7 +93,7 @@
 
       <a href="/" class="nav-item {% if page == 'dashboard' %}active{% endif %}">
         <i data-lucide="layout-grid" class="w-4 h-4 text-slate-400"></i>
-        <span>Обзор и Дашборд</span>
+        <span>Обзор</span>
       </a>
 
       <div class="pt-4 px-3 pb-2 text-[10px] font-bold uppercase tracking-widest text-slate-500 font-mono">Сбор данных</div>
@@ -133,17 +135,17 @@
 
       <a href="/proxies" class="nav-item {% if page == 'proxies' %}active{% endif %}">
         <i data-lucide="shield" class="w-4 h-4 text-slate-400"></i>
-        <span>Прокси пул</span>
+        <span>Подключения</span>
       </a>
 
       <a href="/settings" class="nav-item {% if page == 'settings' %}active{% endif %}">
         <i data-lucide="sliders" class="w-4 h-4 text-slate-400"></i>
-        <span>Настройки & TG</span>
+        <span>Настройки</span>
       </a>
 
       <a href="/logs" class="nav-item {% if page == 'logs' %}active{% endif %}">
         <i data-lucide="terminal" class="w-4 h-4 text-slate-400"></i>
-        <span>Логи системы</span>
+        <span>Журнал событий</span>
       </a>
 
       {% if user and user.role == 'admin' %}
@@ -181,6 +183,7 @@
     <!-- TOPBAR -->
     <header class="h-16 solid-header px-6 flex items-center justify-between flex-shrink-0 z-20 relative">
       
+      <button id="mobile-menu" class="mobile-menu" aria-label="Открыть меню" aria-controls="app-sidebar" aria-expanded="false">☰</button>
       <!-- Telemetry Status Badges -->
       <div class="flex items-center gap-4">
         <div id="global-monitor-status-badge" class="inline-flex items-center gap-2 px-2.5 py-1 rounded-md text-xs font-mono bg-[#111] border border-[#222] text-slate-400">

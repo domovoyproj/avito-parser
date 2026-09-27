@@ -1,0 +1,72 @@
+/* Shared navigation and the overview workspace. */
+:root { --bg-app:#0c1017; --bg-sidebar:#10151e; --bg-card:#151c27; --border-subtle:#253041; }
+.mobile-menu { display:none; }
+.nav-shade { display:none; }
+:focus-visible { outline:2px solid #9ee8bc; outline-offset:4px; }
+.overview { max-width:1400px; margin:auto; color:#e9eef5; font-family:Inter,system-ui,sans-serif; }
+.overview h1 { font-size:32px; font-weight:650; letter-spacing:-1.2px; margin:5px 0 10px; }
+.overview h2 { font-size:18px; font-weight:600; margin:0; }
+.overview p { color:#9caabe; line-height:1.65; }
+.eyebrow { color:#8adbb0; font-size:11px; letter-spacing:2px; text-transform:uppercase; }
+.overview-heading,.section-heading,.monitor-actions { display:flex; align-items:center; justify-content:space-between; gap:16px; }
+.overview-heading { margin-bottom:26px; }
+.workspace-btn { display:inline-flex; align-items:center; justify-content:center; gap:8px; padding:11px 17px; border:1px solid #344156; border-radius:10px; background:#1b2533; color:#e9eef5; font-size:13px; font-weight:600; cursor:pointer; text-decoration:none; }
+.workspace-btn:hover { background:#28364a; }
+.workspace-btn.primary { background:#a5efc2; border-color:#a5efc2; color:#123b27; }
+.workspace-btn.primary:hover { background:#c0f8d5; }
+.workspace-btn:disabled { opacity:.45; cursor:wait; }
+.workspace-muted { color:#96a6bb; font-size:12px; }
+.workspace-link { color:#a5efc2; font-size:13px; }
+.metrics { display:grid; grid-template-columns:repeat(4,1fr); gap:16px; margin:22px 0; }
+.metric,.workspace-panel { background:linear-gradient(135deg,#192230,#131b26); border:1px solid #283448; border-radius:16px; }
+.metric { padding:22px; text-decoration:none; transition:transform .18s,border-color .18s; }
+.metric:hover { transform:translateY(-3px); border-color:#6c947e; }
+.metric-label { color:#a9b6c8; font-size:13px; }
+.metric-value-new { font-size:34px; font-weight:600; letter-spacing:-1px; margin:12px 0 7px; }
+.metric-foot { color:#8adbb0; font-size:12px; }
+.workspace-columns { display:grid; grid-template-columns:minmax(0,1.7fr) minmax(280px,1fr); gap:20px; }
+.workspace-panel { padding:24px; margin-bottom:20px; min-width:0; }
+.section-heading { margin-bottom:20px; }
+.monitor-indicator { display:inline-flex; align-items:center; gap:8px; font-size:12px; color:#a5efc2; }
+.monitor-indicator::before { content:''; width:7px; height:7px; border-radius:50%; background:currentColor; }
+.monitor-meta { display:grid; grid-template-columns:1fr 1fr; gap:18px; padding:22px 0; }
+.monitor-meta strong { display:block; margin-top:7px; font-size:13px; font-weight:500; }
+.search-row { display:flex; align-items:center; justify-content:space-between; gap:14px; padding:15px 0; border-top:1px solid #293347; }
+.search-row strong { font-size:14px; overflow-wrap:anywhere; }
+.search-row p { font-size:12px; margin:4px 0 0; }
+.state-pill { white-space:nowrap; padding:5px 9px; background:#24382f; color:#a5efc2; border-radius:6px; font-size:11px; }
+.state-pill.paused { color:#b3bfce; background:#28313f; }
+.workspace-empty { padding:30px 12px; text-align:center; color:#94a6bc; font-size:13px; line-height:1.8; }
+.workspace-empty strong { display:block; color:#e9eef5; font-size:16px; margin-bottom:7px; }
+.deal-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; }
+.deal-card { border:1px solid #2b3749; background:#111924; border-radius:12px; overflow:hidden; }
+.deal-image { width:100%; height:140px; object-fit:cover; background:#202c3d; }
+.deal-body { padding:14px; }
+.deal-body a { display:block; font-size:13px; line-height:1.5; margin:8px 0; overflow-wrap:anywhere; }
+.deal-price { font-size:19px; font-weight:650; }
+.onboarding { background:linear-gradient(110deg,#213c36,#1a2938); border:1px solid #3c6252; border-radius:16px; padding:26px; margin-bottom:20px; }
+.onboarding p { max-width:650px; margin:10px 0 18px; }
+.quick-links { display:grid; gap:12px; }
+.quick-link { display:block; border:1px solid #2d3b4f; border-radius:10px; padding:14px; }
+.quick-link:hover { background:#243044; }
+.quick-link strong { display:block; font-size:14px; margin-bottom:4px; }
+.workspace-error { border:1px solid #ac6658; border-radius:10px; background:#432820; color:#ffd8c9; padding:14px; margin-bottom:20px; }
+[hidden] { display:none !important; }
+.overview footer { color:#8192a9; font-size:12px; padding:4px 0 20px; }
+@media(max-width:1100px) { .workspace-columns { grid-template-columns:1fr; } .metrics { grid-template-columns:repeat(2,1fr); } }
+@media(max-width:767px) {
+ .mobile-menu { display:inline-flex; background:none; border:1px solid #445268; border-radius:7px; padding:6px 10px; color:white; }
+ #app-sidebar { position:fixed; left:0; top:0; bottom:0; width:256px; transform:translateX(-100%); transition:transform .2s; }
+ body.nav-open #app-sidebar { transform:translateX(0); }
+ body.nav-open .nav-shade { display:block; position:fixed; inset:0; background:#0009; z-index:25; }
+ .solid-header { padding:0 12px !important; gap:8px; }
+ .solid-header > div:last-child { gap:4px; }
+ .solid-header > div:last-child > a:first-child { display:none; }
+ main { padding:20px 14px !important; }
+ .overview-heading { align-items:flex-start; flex-direction:column; }
+ .overview h1 { font-size:27px; }
+ .metrics { gap:10px; } .metric { padding:16px; }
+ .workspace-panel { padding:18px; } .deal-grid { grid-template-columns:1fr; }
+ .deal-image { height:190px; } .monitor-actions { flex-wrap:wrap; }
+}
+@media(prefers-reduced-motion:reduce) { *,*::before,*::after { animation:none !important; transition:none !important; } }

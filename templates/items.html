@@ -446,6 +446,10 @@ async function loadSearchSelectOptions() {
     
     const urlParams = new URLSearchParams(window.location.search);
     const targetSearchId = urlParams.get('search_id');
+    const targetGrade = urlParams.get('deal_grade');
+    if (['GEM', 'HOT', 'FAIR', 'CAUTION'].includes(targetGrade)) {
+      document.getElementById('filter-deal-grade').value = targetGrade;
+    }
 
     select.innerHTML = '<option value="">Все задачи поиска</option>' + searches.map(s => `
       <option value="${s.id}" ${targetSearchId == s.id ? 'selected' : ''}>${s.name} (${s.items_count || 0})</option>
@@ -1033,7 +1037,7 @@ function exportData(fmt) {
   window.location.href = `/api/export/${fmt}?${params.toString()}`;
 }
 
-function initItemsPage() {
+async function initItemsPage() {
   const hideReservedEl = document.getElementById('filter-hide-reserved');
   if (hideReservedEl) {
     const saved = localStorage.getItem('avito_hide_reserved');
@@ -1044,7 +1048,7 @@ function initItemsPage() {
       localStorage.setItem('avito_hide_reserved', hideReservedEl.checked);
     });
   }
-  loadSearchSelectOptions();
+  await loadSearchSelectOptions();
   loadItems(1);
 }
 if (document.readyState === 'loading') {

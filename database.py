@@ -486,8 +486,14 @@ class Database:
         if gems_only:
             where_clauses.append("deal_grade = 'GEM'")
         elif deal_grade:
-            where_clauses.append("deal_grade = ?")
-            params.append(deal_grade.upper())
+            grade = deal_grade.upper()
+            if grade == "HOT":
+                where_clauses.append("deal_grade IN ('GEM', 'HOT')")
+            elif grade == "FAIR":
+                where_clauses.append("deal_grade IN ('GEM', 'HOT', 'FAIR')")
+            else:
+                where_clauses.append("deal_grade = ?")
+                params.append(grade)
         elif hot_deals_only:
             where_clauses.append("(is_hot_deal = 1 OR deal_grade IN ('GEM', 'HOT'))")
         if min_deal_score is not None and min_deal_score > 0:

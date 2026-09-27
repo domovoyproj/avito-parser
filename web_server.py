@@ -514,6 +514,15 @@ async def require_auth(request: Request) -> User:
         raise HTTPException(status_code=401, detail="Требуется авторизация")
     return user
 
+
+@app.middleware("http")
+async def protect_api(request: Request, call_next):
+    """Apply session authentication to the complete API, including exports."""
+    if request.url.path.startswith("/api/") and request.url.path != "/api/auth/login":
+        if not await get_optional_user(request):
+            return JSONResponse(status_code=401, content={"detail": "Требуется авторизация"})
+    return await call_next(request)
+
 async def require_admin(user: User = Depends(require_auth)) -> User:
     if user.role != UserRole.ADMIN:
         raise HTTPException(status_code=403, detail="Доступ разрешен только администраторам")
@@ -1178,6 +1187,10 @@ async def api_start_parse_search(req: ParseSearchRequest):
 
 @app.websocket("/ws/parser/{job_id}")
 async def ws_parser(websocket: WebSocket, job_id: str):
+    token = websocket.cookies.get(SESSION_COOKIE_NAME)
+    if not token or not await db.get_user_by_session(token):
+        await websocket.close(code=1008)
+        return
     await websocket.accept()
     if job_id not in job_manager.subscribers:
         job_manager.subscribers[job_id] = []
