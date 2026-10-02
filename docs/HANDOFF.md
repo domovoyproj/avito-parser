@@ -2,6 +2,11 @@
 
 Дата: 2026-10-03. Исходный commit: 6baf52b (main).
 Roadmap: https://github.com/domovoyproj/avito-parser/issues/13
+Первый PR: https://github.com/domovoyproj/avito-parser/pull/14
+
+## UI: дополнительное требование пользователя
+
+Полностью обновить визуал, а не только функциональные состояния. Актуальная спецификация — Issue #10: CSS tokens и темы, общий app shell, dashboard, карточки/таблицы/фильтры, детали лота, формы настроек и мониторинг, mobile 360/768/1440 px. Прототипы и foundations можно начинать до архитектурного рефакторинга. Приёмка по screenshots до/после, единому стилю, длинным русским текстам и browser smoke на fixtures.
 
 ## Выполнено в первом PR
 
