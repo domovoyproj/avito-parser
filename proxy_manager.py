@@ -8,7 +8,8 @@ from config import config
 class ProxyManager:
     def __init__(self, proxies_file: Optional[Path] = None, default_proxy: Optional[str] = None):
         self.proxies_file = proxies_file or config.proxy.proxies_file
-        self.default_proxy = default_proxy or config.proxy.default_proxy
+        # None means use configured default; an explicit empty string clears it.
+        self.default_proxy = config.proxy.default_proxy if default_proxy is None else default_proxy
         self.proxies: List[str] = []
         self._current_index = 0
         self.load_proxies()

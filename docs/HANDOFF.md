@@ -15,11 +15,14 @@ Roadmap: https://github.com/domovoyproj/avito-parser/issues/13
 - В config.py восстановлено чтение timeout/delays и send_photos после перезапуска.
 - SaveSettingsRequest проверяет положительный timeout, конечные неотрицательные задержки и min <= max.
 - Сохранение .env сохраняет неизвестные переменные и комментарии, экранирует значения и использует atomic replace; очистка proxy удаляет старое значение.
-- Добавлены 8 изолированных unittest и шаг CI. Локально прошли config tests и test_panel_regressions.py на Windows / Python 3.13.
+- Добавлены 12 изолированных unittest и шаг CI. Локально прошли config tests и test_panel_regressions.py на Windows / Python 3.13.
+- API сначала сохраняет staged settings, затем применяет их в памяти; при OSError возвращает 500 без раскрытия путей и без изменения live settings.
+- Проверен POST/GET settings, перезапуск с чистым окружением и отказ записи через настоящий ASGI API на временной БД/.env.
+- HTTP timeout и межстраничные задержки используют config. Смена/очистка proxy обновляет manager и singleton движки HTTP/Playwright; headless обновляется после успешной записи.
 
 ## Следующий шаг
 
-Issue #1 ещё не закрывать: проверить POST /api/settings на временной .env, согласовать runtime HTTP timeout (сейчас hardcoded 20 s), проверить refresh уже созданных proxy/browser instances и не менять live config при ошибке записи. Новый PR должен отдельно тестировать эти сценарии. Затем #2 (безопасность) и #3 (CI).
+Реализация и offline критерии Issue #1 выполнены в PR #14; закрывать после слияния. Следующие задачи: #2 (безопасность), #3 (CI), либо визуальные foundations #10. Настройки применяются к новым запросам/контекстам; уже открытый browser context или HTTP session не пересоздаются посреди сбора. Приложение пока рассчитано на один процесс: другие процессы не получают изменение настроек автоматически — это область #6.
 
 ## Команды
 

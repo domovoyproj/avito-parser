@@ -66,7 +66,7 @@ class AvitoHttpEngine:
                 page_success = False
                 for attempt in range(1, 3):
                     try:
-                        resp = await session.get(page_url, headers=self._get_headers(), timeout=20)
+                        resp = await session.get(page_url, headers=self._get_headers(), timeout=config.scraper.timeout_ms / 1000)
                         
                         if resp.status_code != 200:
                             if resp.status_code == 429 or resp.status_code == 403:
@@ -103,7 +103,8 @@ class AvitoHttpEngine:
                 if not page_success or len(all_items) == 0:
                     break
 
-                await asyncio.sleep(random.uniform(1.0, 2.5))
+                if page_num < max_pages:
+                    await asyncio.sleep(random.uniform(config.scraper.page_delay_min, config.scraper.page_delay_max))
 
         result.items = all_items
         result.total_found = len(all_items)

@@ -33,7 +33,7 @@ from models import (
 )
 from ai_scoring import deal_scoring_engine
 from parser_core import AvitoDataExtractor
-from proxy_manager import proxy_manager
+from proxy_manager import ProxyManager, proxy_manager
 
 # --- Логирование и кольцевой буфер для Веб-панели ---
 class WebLogBuffer(logging.Handler):
@@ -1352,7 +1352,7 @@ class SaveSettingsRequest(BaseModel):
     default_proxy: Optional[str] = None
     bot_token: Optional[str] = None
     admin_chat_ids: List[int] = Field(default_factory=list)
-    notification_interval_min: int = 10
+    notification_interval_min: int = Field(default=10, gt=0)
     send_photos: bool = True
 
     @model_validator(mode="after")
@@ -1363,22 +1363,38 @@ class SaveSettingsRequest(BaseModel):
 
 @app.post("/api/settings")
 async def api_save_settings(req: SaveSettingsRequest):
-    config.scraper.headless = req.headless
-    browser_engine.headless = req.headless
-    config.scraper.timeout_ms = req.timeout_ms
-    config.scraper.page_delay_min = req.page_delay_min
-    config.scraper.page_delay_max = req.page_delay_max
+    # Complete fallible work before publishing settings to running services.
+    candidate = config.model_copy(deep=True)
+    candidate.scraper.headless = req.headless
+    candidate.scraper.timeout_ms = req.timeout_ms
+    candidate.scraper.page_delay_min = req.page_delay_min
+    candidate.scraper.page_delay_max = req.page_delay_max
     
-    config.proxy.enabled = req.proxy_enabled
-    config.proxy.default_proxy = req.default_proxy if req.default_proxy else None
+    candidate.proxy.enabled = req.proxy_enabled
+    candidate.proxy.default_proxy = (req.default_proxy or "").strip() or None
     
-    config.telegram.bot_token = req.bot_token or ""
-    config.telegram.admin_chat_ids = req.admin_chat_ids
-    config.telegram.notification_interval_min = req.notification_interval_min
-    config.telegram.send_photos = req.send_photos
+    candidate.telegram.bot_token = req.bot_token or ""
+    candidate.telegram.admin_chat_ids = req.admin_chat_ids
+    candidate.telegram.notification_interval_min = req.notification_interval_min
+    candidate.telegram.send_photos = req.send_photos
 
-    # Сохраняем в .env
-    config.save_to_env()
+    try:
+        staged_proxies = ProxyManager(proxies_file=candidate.proxy.proxies_file,
+                                      default_proxy=candidate.proxy.default_proxy or "")
+        candidate.save_to_env()
+    except OSError:
+        raise HTTPException(status_code=500, detail="Не удалось сохранить настройки. Проверьте доступ к файлам конфигурации.") from None
+
+    config.scraper = candidate.scraper
+    config.proxy = candidate.proxy
+    config.telegram = candidate.telegram
+    proxy_manager.default_proxy = candidate.proxy.default_proxy
+    proxy_manager.proxies = staged_proxies.proxies
+    proxy_manager._current_index = 0
+    active_proxy = proxy_manager.get_proxy() if config.proxy.enabled else None
+    browser_engine.headless = config.scraper.headless
+    browser_engine.proxy_str = active_proxy
+    http_engine.proxy = active_proxy
     logger.info("⚙️ Настройки успешно обновлены и сохранены в .env")
     return {"status": "success", "message": "Настройки сохранены"}
 
