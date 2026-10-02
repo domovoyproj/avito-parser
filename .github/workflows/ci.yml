@@ -37,3 +37,8 @@ jobs:
         env:
           PYTHONIOENCODING: utf-8
         run: python test_panel_regressions.py
+
+      - name: Run isolated configuration tests
+        env:
+          PYTHONIOENCODING: utf-8
+        run: python -m unittest test_config -v

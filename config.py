@@ -1,8 +1,10 @@
 import os
+import math
+import tempfile
 from pathlib import Path
 from typing import List, Optional
-from pydantic import BaseModel, Field
-from dotenv import load_dotenv
+from pydantic import BaseModel, Field, model_validator
+from dotenv import load_dotenv, set_key
 
 BASE_DIR = Path(__file__).resolve().parent
 ENV_FILE = BASE_DIR / ".env"
@@ -11,9 +13,9 @@ load_dotenv(ENV_FILE)
 
 class ScraperConfig(BaseModel):
     headless: bool = Field(default=True, description="Запуск браузера в скрытом режиме (Headless)")
-    timeout_ms: int = Field(default=45000, description="Таймаут загрузки страницы в мс")
-    page_delay_min: float = Field(default=2.0, description="Минимальная пауза между страницами в сек")
-    page_delay_max: float = Field(default=5.0, description="Максимальная пауза между страницами в сек")
+    timeout_ms: int = Field(default=45000, gt=0, description="Таймаут загрузки страницы в мс")
+    page_delay_min: float = Field(default=2.0, ge=0, allow_inf_nan=False, description="Минимальная пауза между страницами в сек")
+    page_delay_max: float = Field(default=5.0, ge=0, allow_inf_nan=False, description="Максимальная пауза между страницами в сек")
     max_pages: int = Field(default=3, description="Максимальное количество страниц выдачи по умолчанию")
     user_agent: str = Field(
         default="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
@@ -21,6 +23,12 @@ class ScraperConfig(BaseModel):
     )
     save_cookies: bool = Field(default=True, description="Сохранять сессионные куки между запусками")
     cookies_file: Path = Field(default=BASE_DIR / "data" / "cookies.json")
+
+    @model_validator(mode="after")
+    def validate_delays(self):
+        if self.page_delay_min > self.page_delay_max:
+            raise ValueError("Минимальная задержка не должна превышать максимальную")
+        return self
 
 
 class ProxyConfig(BaseModel):
@@ -56,6 +64,7 @@ class AppConfig(BaseModel):
 
     @classmethod
     def load(cls) -> "AppConfig":
+        load_dotenv(ENV_FILE)
         config = cls()
         config.data_dir.mkdir(parents=True, exist_ok=True)
         config.export_dir.mkdir(parents=True, exist_ok=True)
@@ -64,6 +73,29 @@ class AppConfig(BaseModel):
         headless_env = os.getenv("SCRAPER_HEADLESS")
         if headless_env is not None:
             config.scraper.headless = headless_env.lower() in ("true", "1", "yes")
+
+        for env_name, field, convert in (
+            ("SCRAPER_TIMEOUT_MS", "timeout_ms", int),
+            ("SCRAPER_PAGE_DELAY_MIN", "page_delay_min", float),
+            ("SCRAPER_PAGE_DELAY_MAX", "page_delay_max", float),
+        ):
+            raw = os.getenv(env_name, "").strip()
+            if not raw:
+                continue
+            try:
+                value = convert(raw)
+            except ValueError:
+                continue
+            if math.isfinite(value) and (value > 0 if field == "timeout_ms" else value >= 0):
+                setattr(config.scraper, field, value)
+        if config.scraper.page_delay_min > config.scraper.page_delay_max:
+            defaults = ScraperConfig()
+            config.scraper.page_delay_min = defaults.page_delay_min
+            config.scraper.page_delay_max = defaults.page_delay_max
+
+        send_photos = os.getenv("TELEGRAM_SEND_PHOTOS")
+        if send_photos is not None:
+            config.telegram.send_photos = send_photos.lower() in ("true", "1", "yes")
 
         bot_token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
         if bot_token:
@@ -101,12 +133,16 @@ class AppConfig(BaseModel):
 
     def save_to_env(self) -> None:
         """Сохранение ключевых параметров в .env файл"""
+        # Validate before touching the file; assignments to nested models may
+        # have been made by API code without Pydantic assignment validation.
+        ScraperConfig.model_validate(self.scraper.model_dump())
         env_lines = []
         admin_ids_str = ",".join(str(i) for i in self.telegram.admin_chat_ids)
         
         env_lines.append(f"# Конфигурация Telegram")
         env_lines.append(f"TELEGRAM_BOT_TOKEN={self.telegram.bot_token}")
         env_lines.append(f"TELEGRAM_ADMIN_IDS={admin_ids_str}")
+        env_lines.append(f"TELEGRAM_SEND_PHOTOS={'true' if self.telegram.send_photos else 'false'}")
         env_lines.append(f"NOTIFICATION_INTERVAL_MIN={self.telegram.notification_interval_min}\n")
 
         env_lines.append(f"# Конфигурация парсера")
@@ -117,16 +153,29 @@ class AppConfig(BaseModel):
 
         env_lines.append(f"# Конфигурация прокси")
         env_lines.append(f"PROXY_ENABLED={'true' if self.proxy.enabled else 'false'}")
-        if self.proxy.default_proxy:
-            env_lines.append(f"DEFAULT_PROXY={self.proxy.default_proxy}")
+        env_lines.append(f"DEFAULT_PROXY={self.proxy.default_proxy or ''}")
         env_lines.append("")
 
         env_lines.append(f"# Конфигурация веб-панели")
         env_lines.append(f"WEB_HOST={self.web.host}")
         env_lines.append(f"WEB_PORT={self.web.port}\n")
 
-        with open(ENV_FILE, "w", encoding="utf-8") as f:
-            f.write("\n".join(env_lines))
+        # Keep unrelated keys/comments (including AI settings), quote values,
+        # and replace only after a complete successful write on the same volume.
+        original = ENV_FILE.read_text(encoding="utf-8") if ENV_FILE.exists() else ""
+        fd, temporary = tempfile.mkstemp(prefix=".env-", suffix=".tmp", dir=ENV_FILE.parent)
+        staged = Path(temporary)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as stream:
+                stream.write(original)
+            for line in env_lines:
+                if not line or line.startswith("#"):
+                    continue
+                key, value = line.rstrip("\n").split("=", 1)
+                set_key(staged, key, value, quote_mode="always")
+            os.replace(staged, ENV_FILE)
+        finally:
+            staged.unlink(missing_ok=True)
 
 
 config = AppConfig.load()

@@ -20,10 +20,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from browser_engine import browser_engine
-from config import config
+from config import ScraperConfig, config
 from database import db
 from exporter import exporter
 from http_engine import http_engine
@@ -1354,6 +1354,12 @@ class SaveSettingsRequest(BaseModel):
     admin_chat_ids: List[int] = Field(default_factory=list)
     notification_interval_min: int = 10
     send_photos: bool = True
+
+    @model_validator(mode="after")
+    def validate_scraper(self):
+        ScraperConfig(timeout_ms=self.timeout_ms, page_delay_min=self.page_delay_min,
+                      page_delay_max=self.page_delay_max)
+        return self
 
 @app.post("/api/settings")
 async def api_save_settings(req: SaveSettingsRequest):

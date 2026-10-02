@@ -1,5 +1,7 @@
 # Working with this project
 
+Upgrade roadmap: GitHub issue #13 and docs/UPGRADE_PLAN.md. Before continuing upgrade work, read docs/HANDOFF.md and the selected issue; update the issue with the PR, exact validation results, remaining work, and next step. Do not close an epic for a partial implementation.
+
 Use Graphify first for architecture and code relationship analysis:
 
 ```sh
