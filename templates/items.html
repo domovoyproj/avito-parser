@@ -400,6 +400,22 @@
       </div>
     </div>
 
+    <section class="p-4 rounded-xl border border-white/[0.08] bg-slate-900/70 space-y-3" aria-label="Оценка рекомендации">
+      <div class="flex items-center justify-between gap-3"><h4 class="text-sm font-semibold text-white">Оценка рекомендации</h4><a href="/feedback" class="text-xs text-blue-300 hover:underline">Отчёт о качестве</a></div>
+      <p class="text-xs text-slate-400">Баллы помогают сравнивать объявления и не являются вероятностью удачной сделки.</p>
+      {% if user.role != 'viewer' %}
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+        <select id="item-feedback-label" aria-label="Метка рекомендации" class="rounded-lg bg-slate-950 border border-white/[0.12] px-3 py-2 text-sm text-white">
+          <option value="helpful">Полезно</option><option value="false_positive">Ложное срабатывание</option><option value="bought">Куплено</option><option value="sold">Продано</option><option value="stale">Неактуально</option>
+        </select>
+        <button id="item-feedback-save" onclick="saveItemFeedback()" class="rounded-lg bg-blue-600 hover:bg-blue-500 px-3 py-2 text-sm font-semibold text-white">Сохранить оценку</button>
+      </div>
+      <textarea id="item-feedback-note" maxlength="1000" rows="2" placeholder="Комментарий (необязательно)" aria-label="Комментарий к оценке" class="w-full rounded-lg bg-slate-950 border border-white/[0.12] p-2 text-sm text-white"></textarea>
+      {% endif %}
+      <div id="item-feedback-status" role="status" class="text-xs text-slate-400">Загрузка истории…</div>
+      <div id="item-feedback-history" class="space-y-1 text-xs text-slate-300"></div>
+    </section>
+
     <!-- Description & Parameters Tabs -->
     <div class="space-y-2 pt-2 border-t border-white/[0.06]">
       <div class="flex items-center justify-between">
@@ -806,6 +822,7 @@ async function openItemModal(itemId) {
     const data = await apiFetch(`/api/items/${itemId}`);
     const item = data.item;
     loadItemWatchlists();
+    loadItemFeedback(itemId);
 
     document.getElementById('modal-item-id').innerText = `ID: ${item.id}`;
     document.getElementById('modal-item-title').innerText = item.title;
@@ -921,6 +938,47 @@ async function openItemModal(itemId) {
   } catch (err) {
     showToast(err.message, 'error');
   }
+}
+
+const feedbackLabels = {helpful:'Полезно',false_positive:'Ложное срабатывание',bought:'Куплено',sold:'Продано',stale:'Неактуально'};
+async function loadItemFeedback(itemId) {
+  const status = document.getElementById('item-feedback-status');
+  const history = document.getElementById('item-feedback-history');
+  status.textContent = 'Загрузка истории…';
+  history.replaceChildren();
+  try {
+    const data = await apiFetch(`/api/items/${encodeURIComponent(itemId)}/feedback`);
+    if (currentViewingItemId !== itemId) return;
+    status.textContent = data.history.length ? `Записей: ${data.history.length}` : 'Оценок пока нет.';
+    data.history.forEach(entry => {
+      const line = document.createElement('div');
+      line.className = 'rounded-lg bg-slate-950/70 border border-white/[0.06] p-2';
+      line.textContent = `${entry.author} · ${feedbackLabels[entry.label] || entry.label} · ${entry.score_version} · ${entry.score ?? '—'}/100 · ${entry.created_at.slice(0,16)}${entry.note ? ' · ' + entry.note : ''}`;
+      history.appendChild(line);
+    });
+    {% if user.role != 'viewer' %}
+    if (data.history.length) {
+      document.getElementById('item-feedback-label').value = data.history[0].label;
+      document.getElementById('item-feedback-note').value = data.history[0].note;
+    } else {
+      document.getElementById('item-feedback-label').value = 'helpful';
+      document.getElementById('item-feedback-note').value = '';
+    }
+    {% endif %}
+  } catch (error) { if (currentViewingItemId === itemId) status.textContent = 'Не удалось загрузить историю. Повторите открытие карточки.'; }
+}
+
+async function saveItemFeedback() {
+  const itemId = currentViewingItemId;
+  if (!itemId) return;
+  const button = document.getElementById('item-feedback-save');
+  button.disabled = true;
+  try {
+    await apiFetch(`/api/items/${encodeURIComponent(itemId)}/feedback`, {method:'POST', body:JSON.stringify({label:document.getElementById('item-feedback-label').value,note:document.getElementById('item-feedback-note').value})});
+    await loadItemFeedback(itemId);
+    showToast('Оценка сохранена', 'success');
+  } catch (error) { document.getElementById('item-feedback-status').textContent = error.message; }
+  finally { button.disabled = false; }
 }
 
 async function loadItemWatchlists() {

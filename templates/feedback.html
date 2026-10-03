@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}Качество оценок — Avito Max Parser{% endblock %}
+{% block content %}
+<div class="p-4 sm:p-6 space-y-5 max-w-6xl mx-auto">
+  <header class="space-y-1"><h1 class="text-2xl font-bold text-white">Качество оценок</h1><p class="text-sm text-slate-400">Обратная связь по объявлениям. Балл отражает правило ранжирования, а не вероятность покупки.</p></header>
+  <form id="feedback-filters" class="grid grid-cols-1 sm:grid-cols-4 gap-2 rounded-xl border border-white/[0.08] bg-slate-900 p-4">
+    <input name="category" placeholder="Категория" aria-label="Категория" class="rounded-lg bg-slate-950 border border-white/[0.12] px-3 py-2 text-sm text-white">
+    <input name="search_query_id" type="number" min="1" placeholder="ID поиска" aria-label="ID поиска" class="rounded-lg bg-slate-950 border border-white/[0.12] px-3 py-2 text-sm text-white">
+    <input name="score_version" placeholder="Версия скоринга" aria-label="Версия скоринга" class="rounded-lg bg-slate-950 border border-white/[0.12] px-3 py-2 text-sm text-white">
+    <button class="rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-500">Применить</button>
+  </form>
+  <p id="feedback-status" role="status" class="text-sm text-slate-400">Загрузка отчёта…</p>
+  <div id="feedback-report" class="hidden space-y-4">
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <div class="rounded-xl bg-slate-900 border border-white/[0.08] p-4"><div class="text-xs text-slate-400">Метки</div><div id="feedback-count" class="text-2xl font-bold text-white"></div></div>
+      <div class="rounded-xl bg-slate-900 border border-white/[0.08] p-4"><div class="text-xs text-slate-400">Объявления с оценкой</div><div id="feedback-items" class="text-2xl font-bold text-white"></div></div>
+      <div class="rounded-xl bg-slate-900 border border-white/[0.08] p-4"><div class="text-xs text-slate-400">Охват</div><div id="feedback-coverage" class="text-2xl font-bold text-white"></div></div>
+      <div class="rounded-xl bg-slate-900 border border-white/[0.08] p-4"><div class="text-xs text-slate-400">Ложные срабатывания</div><div id="feedback-false" class="text-2xl font-bold text-white"></div></div>
+    </div>
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-3">
+      <section class="rounded-xl bg-slate-900 border border-white/[0.08] p-4"><h2 class="font-semibold text-white mb-2">Метки</h2><div id="feedback-labels" class="text-sm text-slate-300 space-y-1"></div></section>
+      <section class="rounded-xl bg-slate-900 border border-white/[0.08] p-4"><h2 class="font-semibold text-white mb-2">Оценки</h2><div id="feedback-scores" class="text-sm text-slate-300 space-y-1"></div></section>
+      <section class="rounded-xl bg-slate-900 border border-white/[0.08] p-4"><h2 class="font-semibold text-white mb-2">Классы</h2><div id="feedback-grades" class="text-sm text-slate-300 space-y-1"></div></section>
+    </div>
+    <p id="feedback-calibration" class="rounded-xl bg-slate-900 border border-white/[0.08] p-4 text-sm text-slate-300"></p>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+const feedbackNames = {helpful:'Полезно',false_positive:'Ложное срабатывание',bought:'Куплено',sold:'Продано',stale:'Неактуально'};
+function renderDistribution(id, counts, names={}) {
+  const target = document.getElementById(id);
+  target.replaceChildren();
+  for (const [key,value] of Object.entries(counts)) {
+    const row = document.createElement('div');
+    row.className = 'flex justify-between gap-2';
+    const label = document.createElement('span'); label.textContent = names[key] || key;
+    const count = document.createElement('strong'); count.textContent = String(value);
+    row.append(label,count); target.appendChild(row);
+  }
+  if (!target.childElementCount) target.textContent = 'Нет данных';
+}
+async function loadFeedbackReport() {
+  const status = document.getElementById('feedback-status');
+  const panel = document.getElementById('feedback-report');
+  status.textContent = 'Загрузка отчёта…'; panel.classList.add('hidden');
+  try {
+    const params = new URLSearchParams(new FormData(document.getElementById('feedback-filters')));
+    for (const [key,value] of [...params]) if (!value.trim()) params.delete(key);
+    const report = await apiFetch('/api/feedback/report?' + params);
+    status.textContent = report.count ? `Всего объявлений в выборке: ${report.items_in_scope}` : 'Пока нет меток для выбранных фильтров.';
+    document.getElementById('feedback-count').textContent = report.count;
+    document.getElementById('feedback-items').textContent = report.distinct_items;
+    document.getElementById('feedback-coverage').textContent = (report.coverage*100).toFixed(1) + '%';
+    document.getElementById('feedback-false').textContent = report.false_positive_rate == null ? '—' : (report.false_positive_rate*100).toFixed(1) + '%';
+    renderDistribution('feedback-labels',report.labels,feedbackNames);
+    renderDistribution('feedback-scores',report.scores);
+    renderDistribution('feedback-grades',report.grades);
+    document.getElementById('feedback-calibration').textContent = report.calibration_ready ? 'Выборка достаточна для отдельного анализа порогов. Менять правила следует после офлайн-проверки.' : 'Для анализа порогов пока недостаточно данных: требуется минимум 30 меток на 10 разных объявлениях.';
+    panel.classList.remove('hidden');
+  } catch (error) { status.textContent = 'Не удалось загрузить отчёт: ' + error.message; }
+}
+document.getElementById('feedback-filters').addEventListener('submit', event => {event.preventDefault();loadFeedbackReport();});
+loadFeedbackReport();
+</script>
+{% endblock %}

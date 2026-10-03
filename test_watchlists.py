@@ -26,7 +26,7 @@ class WatchlistStorageTests(unittest.IsolatedAsyncioTestCase):
         await self.db.save_item(item)
         await self.db.toggle_item_favorite('legacy', True)
         async with self.db.connection() as connection:
-            await connection.execute('DELETE FROM schema_migrations WHERE version=8')
+            await connection.execute('DELETE FROM schema_migrations WHERE version>=8')
             await connection.commit()
         await self.db.init_db()
         admin_items, admin_count = await self.db.get_items_filtered(favorites_only=True, user_id=admin_id)

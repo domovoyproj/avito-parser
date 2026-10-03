@@ -253,6 +253,10 @@ async def page_items(request: Request):
 async def page_watchlists(request: Request):
     return await render_auth_page("watchlists")(request)
 
+@app.get("/feedback", response_class=HTMLResponse)
+async def page_feedback(request: Request):
+    return await render_auth_page("feedback")(request)
+
 
 @app.get('/exports', response_class=HTMLResponse)
 async def page_exports(request: Request):
@@ -300,6 +304,8 @@ from routers.monitoring import router as monitoring_router
 app.include_router(monitoring_router)
 from routers.watchlists import router as watchlists_router
 app.include_router(watchlists_router)
+from routers.feedback import router as feedback_router
+app.include_router(feedback_router)
 
 from routers.parser import router as parser_router, ws_parser, ParseSearchRequest, ParseItemRequest
 app.include_router(parser_router)
