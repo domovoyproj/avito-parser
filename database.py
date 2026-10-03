@@ -31,9 +31,10 @@ from repositories.users import UsersRepository
 from repositories.searches import SearchesRepository
 from repositories.settings import SettingsRepository
 from repositories.analytics import AnalyticsRepository
+from repositories.monitoring_runs import MonitoringRunsRepository
 
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 
 class Database(
@@ -42,6 +43,7 @@ class Database(
     SearchesRepository,
     SettingsRepository,
     AnalyticsRepository,
+    MonitoringRunsRepository,
 ):
     def __init__(self, db_path: Optional[Path] = None):
         self.db_path = db_path or config.db_path
@@ -425,6 +427,11 @@ class Database(
             await db.execute(
                 "CREATE TABLE IF NOT EXISTS export_jobs (id TEXT PRIMARY KEY, format TEXT NOT NULL, filters TEXT NOT NULL, status TEXT NOT NULL, created_at REAL NOT NULL, finished_at REAL, rows_written INTEGER DEFAULT 0, error TEXT)"
             )
+            await db.execute(
+                "CREATE TABLE IF NOT EXISTS monitoring_runs (run_id TEXT PRIMARY KEY, search_id INTEGER REFERENCES searches(id) ON DELETE SET NULL, search_name TEXT NOT NULL, started_at REAL NOT NULL, finished_at REAL NOT NULL, duration_seconds REAL NOT NULL, outcome TEXT NOT NULL, engine TEXT, found_count INTEGER NOT NULL DEFAULT 0, new_count INTEGER NOT NULL DEFAULT 0, drops_count INTEGER NOT NULL DEFAULT 0, error_type TEXT)"
+            )
+            await db.execute("CREATE INDEX IF NOT EXISTS idx_monitoring_runs_time ON monitoring_runs(started_at DESC)")
+            await db.execute("CREATE INDEX IF NOT EXISTS idx_monitoring_runs_search_time ON monitoring_runs(search_id, started_at DESC)")
             for version in range(1, SCHEMA_VERSION + 1):
                 await db.execute(
                     "INSERT OR IGNORE INTO schema_migrations VALUES (?, ?)",
