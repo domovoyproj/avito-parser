@@ -1,0 +1,181 @@
+{% extends "base.html" %}
+{% block title %}Мои списки — Avito Data Terminal{% endblock %}
+{% block content %}
+<div class="max-w-7xl mx-auto space-y-5">
+  <header class="border-b border-white/[0.06] pb-4">
+    <h1 class="text-xl font-bold text-white">Мои списки</h1>
+    <p class="text-xs text-slate-400 mt-1">Сохраняйте объявления, задавайте целевую цену и получайте адресные оповещения.</p>
+  </header>
+  <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+    <section class="panel-card p-4 space-y-3 lg:col-span-4" aria-labelledby="watchlists-title">
+      <h2 id="watchlists-title" class="text-sm font-semibold text-white">Списки наблюдения</h2>
+      <div id="watchlists-list" class="space-y-2 text-xs text-slate-400" aria-live="polite">Загрузка списков…</div>
+      {% if user.role != 'viewer' %}
+      <form id="create-watchlist-form" class="flex gap-2" onsubmit="createWatchlist(event)">
+        <input id="new-watchlist-name" class="app-input px-3 py-2 text-xs min-w-0 flex-1" maxlength="80" required placeholder="Название нового списка">
+        <button class="px-3 py-2 rounded-lg bg-blue-600 text-white text-xs" type="submit">Добавить</button>
+      </form>
+      {% endif %}
+    </section>
+    <section class="panel-card p-4 space-y-3 lg:col-span-8" aria-labelledby="watchlist-items-title">
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <h2 id="watchlist-items-title" class="text-sm font-semibold text-white">Объявления</h2>
+        <a href="/items" class="text-xs text-blue-300 hover:underline">Открыть каталог</a>
+      </div>
+      <div id="watchlist-items" class="space-y-2 text-xs text-slate-400" aria-live="polite">Выберите список.</div>
+    </section>
+  </div>
+  <section class="panel-card p-4 space-y-3" aria-labelledby="telegram-link-title">
+    <h2 id="telegram-link-title" class="text-sm font-semibold text-white">Личные оповещения в Telegram</h2>
+    <p class="text-xs text-slate-400">Отправьте одноразовый код боту в личном чате. Код действует 10 минут. Тихие часы и фильтры чата сохраняются.</p>
+    <div id="linked-chats" class="text-xs text-slate-300">Загрузка…</div>
+    {% if user.role != 'viewer' %}<button onclick="createTelegramLink()" class="px-3 py-2 rounded-lg bg-blue-600 text-white text-xs">Получить код привязки</button>{% endif %}
+    <p id="telegram-link-code" class="text-xs text-amber-300 break-all" aria-live="polite"></p>
+  </section>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+const canEditWatchlists = {{ 'false' if user.role == 'viewer' else 'true' }};
+let watchlists = [];
+let selectedWatchlist = null;
+
+function safeListingUrl(value) {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' && (url.hostname === 'avito.ru' || url.hostname.endsWith('.avito.ru')) ? url.href : '#';
+  } catch (_) { return '#'; }
+}
+
+async function loadWatchlists() {
+  const container = document.getElementById('watchlists-list');
+  container.textContent = 'Загрузка списков…';
+  try {
+    watchlists = await apiFetch('/api/watchlists');
+    if (!watchlists.length) {
+      container.textContent = 'Списков пока нет.';
+      return;
+    }
+    if (!watchlists.some(list => list.id === selectedWatchlist)) selectedWatchlist = watchlists[0].id;
+    container.innerHTML = watchlists.map(list => `<div class="p-3 rounded-lg border ${list.id === selectedWatchlist ? 'border-blue-500/50 bg-blue-500/10' : 'border-white/[0.08]'}">
+      <button type="button" data-watchlist-select="${list.id}" class="w-full text-left font-semibold text-white">${htmlText(list.name)} <span class="text-slate-400 font-normal">(${list.item_count})</span></button>
+      <div class="flex flex-wrap gap-2 mt-2 text-[11px] text-slate-400">
+        <span>${list.alerts_paused ? 'Оповещения на паузе' : 'Оповещения включены'}</span>
+        ${canEditWatchlists ? `<button type="button" data-watchlist-pause="${list.id}" class="text-blue-300 underline">${list.alerts_paused ? 'Включить' : 'Пауза'}</button>
+        ${list.is_default ? '' : `<button type="button" data-watchlist-rename="${list.id}" class="text-blue-300 underline">Переименовать</button><button type="button" data-watchlist-delete="${list.id}" class="text-rose-300 underline">Удалить</button>`}` : ''}
+      </div>
+    </div>`).join('');
+    await loadWatchlistItems();
+  } catch (error) {
+    container.innerHTML = '<span class="text-rose-300">Не удалось загрузить списки.</span> <button onclick="loadWatchlists()" class="underline">Повторить</button>';
+  }
+}
+
+async function loadWatchlistItems() {
+  const container = document.getElementById('watchlist-items');
+  container.textContent = 'Загрузка объявлений…';
+  if (!selectedWatchlist) return;
+  try {
+    const items = await apiFetch(`/api/watchlists/${selectedWatchlist}/items`);
+    if (!items.length) {
+      container.innerHTML = 'Список пуст. Добавьте объявление из <a href="/items" class="text-blue-300 underline">каталога</a>.';
+      return;
+    }
+    container.innerHTML = items.map(item => `<article class="p-3 rounded-lg border border-white/[0.08] flex flex-col sm:flex-row gap-3">
+      <div class="min-w-0 flex-1"><a href="${htmlText(safeListingUrl(item.url))}" target="_blank" rel="noopener noreferrer" class="font-semibold text-white hover:text-blue-300">${htmlText(item.title)}</a>
+      <p class="mt-1 text-slate-400">Последняя цена: ${item.price == null ? 'не указана' : Number(item.price).toLocaleString('ru-RU') + ' ₽'} · Цель: ${item.target_price == null ? 'не задана' : Number(item.target_price).toLocaleString('ru-RU') + ' ₽'}</p>
+      <p class="mt-1 ${item.alerts_paused ? 'text-slate-400' : item.target_price != null && item.price != null && item.price <= item.target_price ? 'text-emerald-300' : 'text-blue-300'}">${item.alerts_paused ? 'Оповещения для объявления на паузе' : item.target_price == null ? 'Цена для оповещения не задана' : item.price != null && item.price <= item.target_price ? 'Целевая цена достигнута' : 'Ожидаем снижения до целевой цены'}</p>
+      ${item.note ? `<p class="mt-1 text-slate-300">${htmlText(item.note)}</p>` : ''}</div>
+      ${canEditWatchlists ? `<div class="flex gap-2 items-start"><button data-watchitem-edit="${encodeURIComponent(item.item_id)}" class="text-blue-300 underline">Изменить</button><button data-watchitem-delete="${encodeURIComponent(item.item_id)}" class="text-rose-300 underline">Убрать</button></div>` : ''}
+    </article>`).join('');
+    window.currentWatchItems = items;
+  } catch (error) {
+    container.innerHTML = '<span class="text-rose-300">Не удалось загрузить объявления.</span> <button onclick="loadWatchlistItems()" class="underline">Повторить</button>';
+  }
+}
+
+async function createWatchlist(event) {
+  event.preventDefault();
+  try {
+    const result = await apiFetch('/api/watchlists', {method: 'POST', body: JSON.stringify({name: document.getElementById('new-watchlist-name').value.trim()})});
+    selectedWatchlist = result.id;
+    document.getElementById('new-watchlist-name').value = '';
+    await loadWatchlists();
+  } catch (error) { showToast(error.message, 'error'); }
+}
+
+document.getElementById('watchlists-list').addEventListener('click', async event => {
+  const button = event.target.closest('button');
+  if (!button) return;
+  const id = Number(button.dataset.watchlistSelect || button.dataset.watchlistPause || button.dataset.watchlistRename || button.dataset.watchlistDelete);
+  const list = watchlists.find(entry => entry.id === id);
+  if (!list) return;
+  if (button.dataset.watchlistSelect) { selectedWatchlist = id; await loadWatchlists(); return; }
+  if (!canEditWatchlists) return;
+  try {
+    if (button.dataset.watchlistPause) await apiFetch(`/api/watchlists/${id}`, {method: 'PATCH', body: JSON.stringify({alerts_paused: !list.alerts_paused})});
+    if (button.dataset.watchlistRename) {
+      const name = prompt('Новое название списка', list.name);
+      if (!name || !name.trim()) return;
+      await apiFetch(`/api/watchlists/${id}`, {method: 'PATCH', body: JSON.stringify({name: name.trim()})});
+    }
+    if (button.dataset.watchlistDelete) {
+      if (!confirm('Удалить список и его настройки наблюдения?')) return;
+      await apiFetch(`/api/watchlists/${id}`, {method: 'DELETE'});
+      selectedWatchlist = null;
+    }
+    await loadWatchlists();
+  } catch (error) { showToast(error.message, 'error'); }
+});
+
+document.getElementById('watchlist-items').addEventListener('click', async event => {
+  const button = event.target.closest('button');
+  if (!button || !canEditWatchlists) return;
+  const encoded = button.dataset.watchitemEdit || button.dataset.watchitemDelete;
+  if (!encoded) return;
+  const itemId = decodeURIComponent(encoded);
+  const item = (window.currentWatchItems || []).find(entry => entry.item_id === itemId);
+  if (!item) return;
+  try {
+    if (button.dataset.watchitemDelete) {
+      await apiFetch(`/api/watchlists/${selectedWatchlist}/items/${encodeURIComponent(itemId)}`, {method: 'DELETE'});
+    } else {
+      const price = prompt('Целевая цена в рублях (пусто — без оповещения)', item.target_price == null ? '' : String(item.target_price));
+      if (price === null) return;
+      if (price.trim() && (!/^\d+$/.test(price.trim()) || Number(price) > 1000000000)) { showToast('Введите цену от 0 до 1 млрд ₽', 'error'); return; }
+      const note = prompt('Заметка', item.note || '');
+      if (note === null) return;
+      await apiFetch(`/api/watchlists/${selectedWatchlist}/items/${encodeURIComponent(itemId)}`, {method: 'PUT', body: JSON.stringify({target_price: price.trim() ? Number(price) : null, note: note.slice(0, 1000), alerts_paused: !!item.alerts_paused})});
+    }
+    await loadWatchlists();
+  } catch (error) { showToast(error.message, 'error'); }
+});
+
+async function loadTelegramLinks() {
+  const container = document.getElementById('linked-chats');
+  try {
+    const result = await apiFetch('/api/me/telegram-link');
+    container.innerHTML = result.chat_ids.length ? result.chat_ids.map(chat => `<span class="inline-flex items-center gap-2 mr-3">Чат ${chat} ${canEditWatchlists ? `<button data-unlink-chat="${chat}" class="text-rose-300 underline">Отключить</button>` : ''}</span>`).join('') : 'Привязанных чатов пока нет.';
+  } catch (error) { container.innerHTML = '<span class="text-rose-300">Ошибка загрузки чатов.</span> <button onclick="loadTelegramLinks()" class="underline">Повторить</button>'; }
+}
+
+async function createTelegramLink() {
+  try {
+    const result = await apiFetch('/api/me/telegram-link', {method: 'POST'});
+    document.getElementById('telegram-link-code').textContent = result.instruction;
+  } catch (error) { showToast(error.message, 'error'); }
+}
+
+document.getElementById('linked-chats').addEventListener('click', async event => {
+  const button = event.target.closest('[data-unlink-chat]');
+  if (!button) return;
+  try {
+    await apiFetch(`/api/me/telegram-link/${button.dataset.unlinkChat}`, {method: 'DELETE'});
+    await loadTelegramLinks();
+  } catch (error) { showToast(error.message, 'error'); }
+});
+
+loadWatchlists();
+loadTelegramLinks();
+</script>
+{% endblock %}
