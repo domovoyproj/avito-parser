@@ -6,6 +6,7 @@ import aiosqlite
 from config import config
 from models import AvitoItem, PriceChange, SellerInfo
 from ai_scoring import deal_scoring_engine
+from catalog_filters import catalog_where
 
 
 class ItemsRepository:
@@ -350,76 +351,15 @@ class ItemsRepository:
         Расширенное получение списка объявлений с пагинацией, подсчетом общего количества и сортировкой.
         """
         items: List[AvitoItem] = []
-        where_clauses: List[str] = ["1=1"]
-        params: List[Any] = []
-
-        if not include_hidden:
-            where_clauses.append("(is_hidden = 0 OR is_hidden IS NULL)")
-
-        # Скрываем закрытые/снятые объявления
-        where_clauses.append("(is_closed = 0 OR is_closed IS NULL)")
-
-        if hide_reserved:
-            where_clauses.append("(is_reserved = 0 OR is_reserved IS NULL)")
-
-        if favorites_only:
-            if user_id is None:
-                where_clauses.append("is_favorite = 1")
-            else:
-                where_clauses.append("EXISTS (SELECT 1 FROM watchlist_items wi JOIN watchlists w ON w.id=wi.watchlist_id WHERE wi.item_id=items.id AND w.user_id=? AND w.is_default=1)")
-                params.append(user_id)
-
-        if gems_only:
-            where_clauses.append("deal_grade = 'GEM'")
-        elif deal_grade:
-            grade = deal_grade.upper()
-            if grade == "HOT":
-                where_clauses.append("deal_grade IN ('GEM', 'HOT')")
-            elif grade == "FAIR":
-                where_clauses.append("deal_grade IN ('GEM', 'HOT', 'FAIR')")
-            else:
-                where_clauses.append("deal_grade = ?")
-                params.append(grade)
-        elif hot_deals_only:
-            where_clauses.append("(is_hot_deal = 1 OR deal_grade IN ('GEM', 'HOT'))")
-        if min_deal_score is not None and min_deal_score > 0:
-            where_clauses.append("deal_score >= ?")
-            params.append(int(min_deal_score))
-
-        if search_query_id is not None:
-            if str(search_query_id) in ("-1", "unassigned", "null"):
-                where_clauses.append("search_query_id IS NULL")
-            else:
-                try:
-                    where_clauses.append(
-                        "EXISTS (SELECT 1 FROM item_searches membership WHERE membership.item_id=items.id AND membership.search_id=?)"
-                    )
-                    params.append(int(search_query_id))
-                except (ValueError, TypeError):
-                    pass
-
-        if query:
-            where_clauses.append(
-                "(title LIKE ? OR description LIKE ? OR address LIKE ? OR params_json LIKE ?)"
-            )
-            pattern = f"%{query.strip()}%"
-            params.extend([pattern, pattern, pattern, pattern])
-
-        if min_price is not None:
-            where_clauses.append("price >= ?")
-            params.append(min_price)
-
-        if max_price is not None:
-            where_clauses.append("price <= ?")
-            params.append(max_price)
-
-        if with_discount_only:
-            where_clauses.append("(old_price IS NOT NULL AND price < old_price)")
-
-        if with_delivery_only:
-            where_clauses.append("delivery_available = 1")
-
-        where_sql = " AND ".join(where_clauses)
+        where_sql, params, search_kind, search_value = catalog_where(
+            search_query_id=search_query_id, query=query, min_price=min_price,
+            max_price=max_price, with_discount_only=with_discount_only,
+            with_delivery_only=with_delivery_only, favorites_only=favorites_only,
+            hot_deals_only=hot_deals_only, gems_only=gems_only,
+            hide_reserved=hide_reserved, deal_grade=deal_grade,
+            min_deal_score=min_deal_score, include_hidden=include_hidden,
+            user_id=user_id,
+        )
 
         # Сортировка
         order_by_sql = "created_at DESC"
@@ -435,6 +375,10 @@ class ItemsRepository:
             order_by_sql = "deal_score DESC, created_at DESC"
         elif sort_by == "title":
             order_by_sql = "title ASC"
+        elif sort_by == "relevance" and search_kind == "fts":
+            order_by_sql = "(SELECT bm25(item_fts, 5.0, 1.0, 0.5, 0.5) FROM item_fts WHERE item_fts.rowid=items.rowid AND item_fts MATCH ?) ASC, created_at DESC"
+        elif sort_by == "relevance" and search_kind == "literal":
+            order_by_sql = "CASE WHEN title LIKE ? ESCAPE '\\' THEN 0 ELSE 1 END, created_at DESC"
 
         count_sql = f"SELECT COUNT(*) FROM items WHERE {where_sql}"
         select_sql = f"SELECT * FROM items WHERE {where_sql} ORDER BY {order_by_sql} LIMIT ? OFFSET ?"
@@ -448,6 +392,11 @@ class ItemsRepository:
 
             # Выборка данных
             fetch_params = list(params)
+            if sort_by == "relevance" and search_kind == "fts":
+                fetch_params.append(search_value)
+            elif sort_by == "relevance" and search_kind == "literal":
+                escaped = search_value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+                fetch_params.append(f"%{escaped}%")
             fetch_params.extend([limit, offset])
             cursor_sel = await db.execute(select_sql, fetch_params)
             rows = await cursor_sel.fetchall()

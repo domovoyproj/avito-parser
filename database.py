@@ -36,7 +36,7 @@ from repositories.watchlists import WatchlistsRepository
 from repositories.feedback import FeedbackRepository
 
 
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 
 
 class Database(
@@ -463,6 +463,33 @@ class Database(
             )""")
             await db.execute("CREATE INDEX IF NOT EXISTS idx_feedback_item_user ON item_feedback_events(item_id,user_id,id DESC)")
             await db.execute("CREATE INDEX IF NOT EXISTS idx_feedback_scope ON item_feedback_events(score_version,category,search_query_id)")
+            if old_version < 10:
+                await db.execute("""CREATE VIRTUAL TABLE IF NOT EXISTS item_fts USING fts5(
+                    title,description,address,params_json, content='items',content_rowid='rowid',
+                    tokenize='unicode61 remove_diacritics 2',prefix='2 3 4')""")
+                await db.execute("INSERT INTO item_fts(item_fts) VALUES('rebuild')")
+            await db.execute("""CREATE TRIGGER IF NOT EXISTS items_fts_insert AFTER INSERT ON items BEGIN
+                INSERT INTO item_fts(rowid,title,description,address,params_json)
+                VALUES(new.rowid,new.title,new.description,new.address,new.params_json);
+            END""")
+            await db.execute("""CREATE TRIGGER IF NOT EXISTS items_fts_delete AFTER DELETE ON items BEGIN
+                INSERT INTO item_fts(item_fts,rowid,title,description,address,params_json)
+                VALUES('delete',old.rowid,old.title,old.description,old.address,old.params_json);
+            END""")
+            await db.execute("""CREATE TRIGGER IF NOT EXISTS items_fts_update AFTER UPDATE OF title,description,address,params_json ON items BEGIN
+                INSERT INTO item_fts(item_fts,rowid,title,description,address,params_json)
+                VALUES('delete',old.rowid,old.title,old.description,old.address,old.params_json);
+                INSERT INTO item_fts(rowid,title,description,address,params_json)
+                VALUES(new.rowid,new.title,new.description,new.address,new.params_json);
+            END""")
+            await db.execute("""CREATE TABLE IF NOT EXISTS saved_catalog_filters (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                name TEXT NOT NULL,
+                filters_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                UNIQUE(user_id,name)
+            )""")
             for version in range(1, SCHEMA_VERSION + 1):
                 await db.execute(
                     "INSERT OR IGNORE INTO schema_migrations VALUES (?, ?)",

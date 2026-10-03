@@ -77,6 +77,7 @@
           class="w-full app-input px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none font-mono"
         >
           <option value="deal_score_desc" selected>💎 По AI Score</option>
+          <option value="relevance">По релевантности</option>
           <option value="newest">Сначала новые</option>
           <option value="oldest">Сначала старые</option>
           <option value="price_asc">Цена: по возрастанию</option>
@@ -181,6 +182,14 @@
         </button>
       </div>
 
+    </div>
+
+    <div class="flex flex-wrap gap-2 items-center pt-3 border-t border-white/[0.06]">
+      <select id="saved-filter-select" aria-label="Сохранённый фильтр" class="app-input px-2.5 py-1.5 text-xs text-slate-200 min-w-40"><option value="">Мои фильтры</option></select>
+      <button onclick="applySavedFilter()" class="px-2.5 py-1.5 rounded-lg bg-blue-600/15 text-blue-300 text-xs">Открыть</button>
+      {% if user.role != 'viewer' %}<button onclick="saveCurrentFilter()" class="px-2.5 py-1.5 rounded-lg bg-emerald-600/15 text-emerald-300 text-xs">Сохранить фильтр</button><button onclick="deleteSavedFilter()" class="px-2.5 py-1.5 rounded-lg bg-rose-600/15 text-rose-300 text-xs">Удалить</button>{% endif %}
+      <button onclick="copyCatalogLink()" class="px-2.5 py-1.5 rounded-lg bg-white/[0.05] text-slate-300 text-xs">Скопировать ссылку</button>
+      <span id="saved-filter-status" role="status" class="text-xs text-slate-500"></span>
     </div>
 
   </div>
@@ -444,6 +453,90 @@ let currentViewingItemId = null;
 let watchStateRequest = 0;
 let selectedItemIds = new Set();
 let currentItemsMap = new Map();
+let activeCatalogQuery = '';
+let savedFilters = [];
+
+function currentCatalogFilters() {
+  return {
+    query:document.getElementById('filter-query').value.trim(),
+    search_query_id:document.getElementById('filter-search-id').value || null,
+    min_price:document.getElementById('filter-min-price').value ? Number(document.getElementById('filter-min-price').value) : null,
+    max_price:document.getElementById('filter-max-price').value ? Number(document.getElementById('filter-max-price').value) : null,
+    with_discount_only:document.getElementById('filter-discount-only').checked,
+    with_delivery_only:document.getElementById('filter-delivery-only').checked,
+    favorites_only:document.getElementById('filter-favorites-only').checked,
+    hide_reserved:document.getElementById('filter-hide-reserved').checked,
+    deal_grade:document.getElementById('filter-deal-grade').value || null,
+    sort_by:document.getElementById('filter-sort-by').value
+  };
+}
+
+function applyCatalogFilters(filters) {
+  const fields = {'query':'filter-query','search_query_id':'filter-search-id','min_price':'filter-min-price','max_price':'filter-max-price','deal_grade':'filter-deal-grade','sort_by':'filter-sort-by'};
+  for (const [key,id] of Object.entries(fields)) {
+    const el=document.getElementById(id);
+    if (el) el.value=filters[key] ?? (key==='sort_by' ? 'deal_score_desc' : '');
+  }
+  for (const [key,id] of Object.entries({'with_discount_only':'filter-discount-only','with_delivery_only':'filter-delivery-only','favorites_only':'filter-favorites-only','hide_reserved':'filter-hide-reserved'})) {
+    document.getElementById(id).checked=!!filters[key];
+  }
+  loadItems(1);
+}
+
+function catalogLink() {
+  const params=new URLSearchParams();
+  for (const [key,value] of Object.entries(currentCatalogFilters())) if (value !== null && value !== '' && value !== false) params.set(key,String(value));
+  return location.origin + '/items?' + params.toString();
+}
+
+async function copyCatalogLink() {
+  try { await navigator.clipboard.writeText(catalogLink()); document.getElementById('saved-filter-status').textContent='Ссылка скопирована.'; }
+  catch (error) { document.getElementById('saved-filter-status').textContent='Не удалось скопировать. Адрес есть в строке браузера после применения фильтра.'; }
+}
+
+async function loadSavedFilters() {
+  const status=document.getElementById('saved-filter-status');
+  status.textContent='Загрузка фильтров…';
+  try {
+    savedFilters=await apiFetch('/api/saved-filters');
+    const select=document.getElementById('saved-filter-select');
+    const selected=select.value;
+    select.replaceChildren(new Option('Мои фильтры',''));
+    savedFilters.forEach(entry=>select.add(new Option(entry.name,String(entry.id))));
+    select.value=selected;
+    status.textContent=savedFilters.length ? '' : 'Сохранённых фильтров пока нет.';
+  } catch (error) { status.textContent='Не удалось загрузить фильтры.'; }
+}
+
+function applySavedFilter() {
+  const entry=savedFilters.find(item=>String(item.id)===document.getElementById('saved-filter-select').value);
+  if (entry) applyCatalogFilters(entry.filters);
+}
+
+async function saveCurrentFilter() {
+  const name=prompt('Название фильтра:');
+  if (!name) return;
+  try {
+    await apiFetch('/api/saved-filters',{method:'POST',body:JSON.stringify({name,filters:currentCatalogFilters()})});
+    await loadSavedFilters();
+    document.getElementById('saved-filter-status').textContent='Фильтр сохранён.';
+  } catch (error) { document.getElementById('saved-filter-status').textContent=error.message; }
+}
+
+async function deleteSavedFilter() {
+  const id=document.getElementById('saved-filter-select').value;
+  if (!id) return;
+  try { await apiFetch(`/api/saved-filters/${encodeURIComponent(id)}`,{method:'DELETE'}); await loadSavedFilters(); }
+  catch (error) { document.getElementById('saved-filter-status').textContent=error.message; }
+}
+
+function highlightedTitle(title) {
+  const needle=activeCatalogQuery.split(/\s+/)[0].toLocaleLowerCase('ru');
+  if (!needle) return htmlText(title);
+  const index=String(title).toLocaleLowerCase('ru').indexOf(needle);
+  if (index < 0) return htmlText(title);
+  return htmlText(title.slice(0,index)) + '<mark class="rounded bg-amber-300/30 text-amber-100">' + htmlText(title.slice(index,index+needle.length)) + '</mark>' + htmlText(title.slice(index+needle.length));
+}
 
 function setViewMode(mode) {
   currentViewMode = mode;
@@ -499,6 +592,7 @@ async function loadItems(page = 1) {
   document.getElementById('catalog-error').hidden = true;
   currentPage = page;
   const query = document.getElementById('filter-query').value.trim();
+  activeCatalogQuery = query;
   const searchId = document.getElementById('filter-search-id').value;
   const minPrice = document.getElementById('filter-min-price').value;
   const maxPrice = document.getElementById('filter-max-price').value;
@@ -524,6 +618,7 @@ async function loadItems(page = 1) {
   if (deliveryOnly) params.append('with_delivery_only', 'true');
   if (favoritesOnly) params.append('favorites_only', 'true');
   if (hideReserved) params.append('hide_reserved', 'true');
+  if (page === 1) history.replaceState(null,'',catalogLink());
   try {
     const data = await apiFetch(`/api/items?${params.toString()}`, {signal: request.signal});
     if (request !== catalogueRequest) return;
@@ -697,7 +792,7 @@ function renderGrid(items) {
 
           <div class="p-3.5 pb-0">
             <div class="flex items-start justify-between gap-1.5">
-              <div class="font-semibold text-slate-200 text-xs line-clamp-2 leading-snug" title="${htmlText(it.title)}">${htmlText(it.title)}</div>
+              <div class="font-semibold text-slate-200 text-xs line-clamp-2 leading-snug" title="${htmlText(it.title)}">${highlightedTitle(it.title)}</div>
               <button onclick="toggleFavorite(${htmlText(JSON.stringify(it.id))}, event)" class="btn-fav-${htmlText(it.id)} p-1 text-slate-500 hover:text-amber-400 transition flex-shrink-0" title="В избранное">
                 ${it.is_favorite 
                   ? '<i data-lucide="star" class="w-3.5 h-3.5 fill-amber-400 text-amber-400"></i>' 
@@ -762,7 +857,7 @@ function renderTable(items) {
             <img src="${safeResourceUrl(it.main_image || '/static/img/no-image.svg')}" class="w-9 h-9 rounded object-cover bg-slate-950 border border-white/[0.06] flex-shrink-0" onerror="this.src='/static/img/no-image.svg'">
             <div class="min-w-0 max-w-sm">
               <div class="font-sans font-semibold text-slate-200 text-xs truncate flex items-center gap-1.5" title="${htmlText(it.title)}">
-                <span>${htmlText(it.title)}</span>
+                <span>${highlightedTitle(it.title)}</span>
               </div>
               <div class="text-[10px] text-slate-500 flex items-center gap-2 mt-0.5">
                 <span>ID: ${htmlText(it.id)}</span>
@@ -1167,18 +1262,9 @@ async function clearAllDatabase() {
 
 let exportPending = false;
 async function exportData(fmt) {
-  const query = document.getElementById('filter-query').value.trim();
-  const searchId = document.getElementById('filter-search-id').value;
-  const minPrice = document.getElementById('filter-min-price').value;
-  const maxPrice = document.getElementById('filter-max-price').value;
-  const discountOnly = document.getElementById('filter-discount-only').checked;
-
+  const filters = currentCatalogFilters();
   const params = new URLSearchParams();
-  if (query) params.append('query', query);
-  if (searchId) params.append('search_query_id', searchId);
-  if (minPrice) params.append('min_price', minPrice);
-  if (maxPrice) params.append('max_price', maxPrice);
-  if (discountOnly) params.append('with_discount_only', 'true');
+  for (const [key,value] of Object.entries(filters)) if (value !== null && value !== '' && value !== false) params.set(key,String(value));
 
   if (!canMutate() || !['excel', 'csv'].includes(fmt)) {
     window.location.href = `/api/export/${fmt}?${params.toString()}`;
@@ -1187,9 +1273,7 @@ async function exportData(fmt) {
   if (exportPending) { showToast('Экспорт уже готовится', 'info'); return; }
   exportPending = true;
   try {
-    const payload = {format: fmt === 'excel' ? 'xlsx' : 'csv', query: query || null,
-      search_query_id: searchId || null, min_price: minPrice ? Number(minPrice) : null,
-      max_price: maxPrice ? Number(maxPrice) : null, with_discount_only: discountOnly};
+    const payload = {...filters, format:fmt === 'excel' ? 'xlsx' : 'csv'};
     const job = await apiFetch('/api/export-jobs', {method: 'POST', body: JSON.stringify(payload)});
     showToast('Экспорт готовится в фоне. Можно продолжать работу.', 'info');
     for (let attempt = 0; attempt < 300; attempt++) {
@@ -1219,7 +1303,11 @@ async function initItemsPage() {
     });
   }
   await loadSearchSelectOptions();
-  loadItems(1);
+  const params = new URLSearchParams(location.search);
+  if ([...params.keys()].some(key => ['query','min_price','max_price','with_discount_only','with_delivery_only','favorites_only','hide_reserved','sort_by','search_query_id'].includes(key))) {
+    applyCatalogFilters(Object.fromEntries(params));
+  } else loadItems(1);
+  loadSavedFilters();
 }
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', initItemsPage);

@@ -4,6 +4,8 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, model_validator
 from export_jobs import ExportJobs
 from dependencies import get_export_jobs
+from auth_dependencies import require_auth
+from models import User
 
 router = APIRouter()
 
@@ -23,10 +25,18 @@ async def list_exports(export_jobs: ExportJobs = Depends(get_export_jobs)):
 class ExportRequest(BaseModel):
     format: Literal["csv", "xlsx"] = "csv"
     search_query_id: Optional[str] = Field(default=None, pattern=r"^(?:-1|[1-9][0-9]*)$")
-    query: Optional[str] = Field(default=None, max_length=500)
+    query: Optional[str] = Field(default=None, max_length=200)
     min_price: Optional[int] = Field(default=None, ge=0)
     max_price: Optional[int] = Field(default=None, ge=0)
     with_discount_only: bool = False
+    with_delivery_only: bool = False
+    favorites_only: bool = False
+    hot_deals_only: bool = False
+    gems_only: bool = False
+    hide_reserved: bool = False
+    deal_grade: Optional[str] = None
+    min_deal_score: Optional[int] = Field(default=None, ge=0, le=100)
+    sort_by: str = "newest"
 
     @model_validator(mode="after")
     def validate_price_range(self):
@@ -36,10 +46,10 @@ class ExportRequest(BaseModel):
 
 
 @router.post("/api/export-jobs", status_code=202)
-async def create_export(req: ExportRequest, export_jobs: ExportJobs = Depends(get_export_jobs)):
+async def create_export(req: ExportRequest, export_jobs: ExportJobs = Depends(get_export_jobs), user: User = Depends(require_auth)):
     try:
         job_id = await export_jobs.enqueue(
-            req.format, req.model_dump(exclude={"format"})
+            req.format, req.model_dump(exclude={"format", "sort_by"}) | {"user_id": user.id}
         )
     except ValueError as exc:
         raise HTTPException(status_code=429, detail=str(exc)) from exc

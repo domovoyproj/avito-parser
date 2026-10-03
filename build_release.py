@@ -16,7 +16,7 @@ DIST_DIR = PROJECT_DIR / "dist"
 # Файлы и папки для включения в релиз
 INCLUDE_PATTERNS = [
     "routers", "repositories", "docs",
-    "auth_dependencies.py", "dependencies.py", "coordination.py", "monitoring.py",
+    "auth_dependencies.py", "dependencies.py", "catalog_filters.py", "coordination.py", "monitoring.py",
     "notifications.py", "outbox.py", "observability.py", "security.py",
     "parse_outcomes.py", "parser_jobs.py", "llm_store.py", "export_jobs.py",
     "streaming_export.py", "setup_admin.py", "manage_db.py", "constraints.txt",
