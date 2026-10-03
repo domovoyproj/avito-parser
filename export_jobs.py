@@ -8,6 +8,7 @@ from config import config
 from coordination import lease
 from database import db
 from streaming_export import StreamingExport
+from catalog_filters import catalog_where
 
 MAX_ROWS = 1000000
 
@@ -79,31 +80,7 @@ class ExportJobs:
             writer = None
             try:
                 filters = json.loads(job["filters"])
-                clauses, params = (
-                    [
-                        "COALESCE(is_hidden,0)=0",
-                        "COALESCE(is_closed,0)=0",
-                        "COALESCE(is_reserved,0)=0",
-                    ],
-                    [],
-                )
-                if filters.get("search_query_id") == "-1":
-                    clauses.append("NOT EXISTS (SELECT 1 FROM item_searches m WHERE m.item_id=items.id)")
-                elif filters.get("search_query_id"):
-                    clauses.append(
-                        "EXISTS (SELECT 1 FROM item_searches m WHERE m.item_id=items.id AND m.search_id=?)"
-                    )
-                    params.append(int(filters["search_query_id"]))
-                if filters.get("query"):
-                    clauses.append("(title LIKE ? OR description LIKE ?)")
-                    params.extend(["%" + filters["query"] + "%"] * 2)
-                for key, operator in [("min_price", ">="), ("max_price", "<=")]:
-                    if filters.get(key) is not None:
-                        clauses.append(f"price {operator} ?")
-                        params.append(filters[key])
-                if filters.get("with_discount_only"):
-                    clauses.append("old_price>price")
-                where = " AND ".join(clauses)
+                where, params, _, _ = catalog_where(**filters)
                 async with self.db.connection() as connection:
                     connection.row_factory = __import__("aiosqlite").Row
                     await connection.execute("BEGIN")

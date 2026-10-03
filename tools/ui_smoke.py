@@ -67,6 +67,20 @@ async def run(destination):
         await page.wait_for_function("document.querySelectorAll('.product-card').length === 1")
         await page.uncheck('#filter-favorites-only')
         await page.wait_for_function("document.querySelectorAll('.product-card').length === 24")
+        await page.fill('#filter-query', 'кофе')
+        await page.wait_for_function("document.querySelectorAll('.product-card').length === 4")
+        assert await page.locator('.product-card mark').count() == 4
+        page.once('dialog', lambda dialog: dialog.accept('Кофемашины'))
+        await page.click('button[onclick="saveCurrentFilter()"]')
+        await page.get_by_role('option', name='Кофемашины').wait_for(state='attached')
+        await page.fill('#filter-query', '')
+        await page.wait_for_function("document.querySelectorAll('.product-card').length === 24")
+        await page.select_option('#saved-filter-select', label='Кофемашины')
+        await page.click('button[onclick="applySavedFilter()"]')
+        await page.wait_for_function("document.querySelectorAll('.product-card').length === 4")
+        assert 'query=%D0%BA%D0%BE%D1%84%D0%B5' in page.url
+        await page.fill('#filter-query', '')
+        await page.wait_for_function("document.querySelectorAll('.product-card').length === 24")
         await page.goto('http://127.0.0.1:18765/watchlists')
         await page.wait_for_selector('[data-watchlist-select]')
         await page.fill('#new-watchlist-name', 'Покупки до 40 тысяч')
@@ -141,12 +155,13 @@ async def run(destination):
                 await role_page.goto('http://127.0.0.1:18765/items')
                 await role_page.wait_for_selector('.product-card')
                 assert await role_page.locator('button[onclick^="toggleFavorite"]').first.is_disabled()
+                assert await role_page.locator("button[onclick='saveCurrentFilter()']").count() == 0
                 await role_page.goto('http://127.0.0.1:18765/watchlists')
                 assert await role_page.locator('#create-watchlist-form').count() == 0
             await context.close()
         assert not errors, errors
         await browser.close()
-    print('PASS: 13 responsive screens, feedback, watchlists, themes, dialogs, search, favorite, export, error/retry, XSS text, roles; no browser errors')
+    print('PASS: 13 responsive screens, indexed search, saved filters, feedback, watchlists, themes, dialogs, export, error/retry, XSS text, roles; no browser errors')
 
 
 if __name__ == '__main__':
