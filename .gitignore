@@ -1,5 +1,9 @@
 # Python & Environment
 graphify-out/
+node_modules/
+backups/
+!package.json
+!package-lock.json
 __pycache__/
 *.py[cod]
 *$py.class
@@ -31,6 +35,10 @@ exports/*
 *.xlsx
 *.csv
 *.json
+!package.json
+!package-lock.json
+node_modules/
+backups/
 *.html_dump
 avito_search_dump.html
 rendered_dom.html

@@ -452,7 +452,7 @@ async function loadSearchSelectOptions() {
     }
 
     select.innerHTML = '<option value="">Все задачи поиска</option>' + searches.map(s => `
-      <option value="${s.id}" ${targetSearchId == s.id ? 'selected' : ''}>${s.name} (${s.items_count || 0})</option>
+      <option value="${s.id}" ${targetSearchId == s.id ? 'selected' : ''}>${htmlText(s.name)} (${s.items_count || 0})</option>
     `).join('');
   } catch (e) {}
 }
@@ -621,7 +621,7 @@ function renderGrid(items) {
       <div class="product-card group relative flex flex-col justify-between">
         <div>
           <div class="relative aspect-[4/3] bg-slate-950 overflow-hidden border-b border-white/[0.04]">
-            <img src="${it.main_image || '/static/img/no-image.svg'}" class="w-full h-full object-cover group-hover:scale-105 transition-all duration-300" onerror="this.src='/static/img/no-image.svg'">
+            <img src="${safeResourceUrl(it.main_image || '/static/img/no-image.svg')}" class="w-full h-full object-cover group-hover:scale-105 transition-all duration-300" onerror="this.src='/static/img/no-image.svg'">
             
             <!-- Checkbox overlay -->
             <div class="absolute top-2 left-2 z-10">
@@ -655,7 +655,7 @@ function renderGrid(items) {
 
           <div class="p-3.5 pb-0">
             <div class="flex items-start justify-between gap-1.5">
-              <div class="font-semibold text-slate-200 text-xs line-clamp-2 leading-snug" title="${it.title}">${it.title}</div>
+              <div class="font-semibold text-slate-200 text-xs line-clamp-2 leading-snug" title="${htmlText(it.title)}">${htmlText(it.title)}</div>
               <button onclick="toggleFavorite('${it.id}', event)" class="btn-fav-${it.id} p-1 text-slate-500 hover:text-amber-400 transition flex-shrink-0" title="В избранное">
                 ${it.is_favorite 
                   ? '<i data-lucide="star" class="w-3.5 h-3.5 fill-amber-400 text-amber-400"></i>' 
@@ -669,7 +669,7 @@ function renderGrid(items) {
             </div>
 
             <div class="text-[10px] text-slate-500 mt-1 truncate font-mono">
-              ${it.address || it.metro || 'Россия'}
+              ${htmlText(it.address || it.metro || 'Россия')}
             </div>
           </div>
         </div>
@@ -681,7 +681,7 @@ function renderGrid(items) {
               <span>Детали</span>
             </button>
 
-            <a href="${it.url}" target="_blank" class="flex-1 h-7 px-2 rounded-lg bg-blue-600/15 hover:bg-blue-600/25 text-blue-400 hover:text-blue-300 border border-blue-500/30 text-[11px] font-medium transition flex items-center justify-center gap-1 shadow-sm" title="Открыть на Авито">
+            <a href="${safeResourceUrl(it.url)}" target="_blank" class="flex-1 h-7 px-2 rounded-lg bg-blue-600/15 hover:bg-blue-600/25 text-blue-400 hover:text-blue-300 border border-blue-500/30 text-[11px] font-medium transition flex items-center justify-center gap-1 shadow-sm" title="Открыть на Авито">
               <span>Авито</span>
               <i data-lucide="external-link" class="w-3 h-3"></i>
             </a>
@@ -717,10 +717,10 @@ function renderTable(items) {
         </td>
         <td class="py-2.5 px-3">
           <div class="flex items-center gap-2.5">
-            <img src="${it.main_image || '/static/img/no-image.svg'}" class="w-9 h-9 rounded object-cover bg-slate-950 border border-white/[0.06] flex-shrink-0" onerror="this.src='/static/img/no-image.svg'">
+            <img src="${safeResourceUrl(it.main_image || '/static/img/no-image.svg')}" class="w-9 h-9 rounded object-cover bg-slate-950 border border-white/[0.06] flex-shrink-0" onerror="this.src='/static/img/no-image.svg'">
             <div class="min-w-0 max-w-sm">
-              <div class="font-sans font-semibold text-slate-200 text-xs truncate flex items-center gap-1.5" title="${it.title}">
-                <span>${it.title}</span>
+              <div class="font-sans font-semibold text-slate-200 text-xs truncate flex items-center gap-1.5" title="${htmlText(it.title)}">
+                <span>${htmlText(it.title)}</span>
               </div>
               <div class="text-[10px] text-slate-500 flex items-center gap-2 mt-0.5">
                 <span>ID: ${it.id}</span>
@@ -740,8 +740,8 @@ function renderTable(items) {
           ` : `<span class="text-slate-600 text-[11px]">—</span>`}
         </td>
         <td class="py-2.5 px-3 text-slate-400 text-[11px]">
-          <div>${it.address || '—'}</div>
-          ${it.metro ? `<div class="text-[10px] text-slate-500">м. ${it.metro}</div>` : ''}
+          <div>${htmlText(it.address || '—')}</div>
+          ${it.metro ? `<div class="text-[10px] text-slate-500">м. ${htmlText(it.metro)}</div>` : ''}
         </td>
         <td class="py-2.5 px-3 text-[11px] text-slate-400 whitespace-nowrap">
           ${formatRelativeTime(it.created_at)}
@@ -755,7 +755,7 @@ function renderTable(items) {
           <button onclick="openItemModal('${it.id}')" class="inline-flex items-center justify-center h-7 w-7 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-slate-300 hover:text-white border border-white/[0.08] transition shadow-sm" title="Детали">
             <i data-lucide="eye" class="w-3.5 h-3.5"></i>
           </button>
-          <a href="${it.url}" target="_blank" class="inline-flex items-center justify-center h-7 w-7 rounded-lg bg-blue-600/15 hover:bg-blue-600/25 text-blue-400 hover:text-blue-300 border border-blue-500/30 transition shadow-sm" title="Открыть на Авито">
+          <a href="${safeResourceUrl(it.url)}" target="_blank" class="inline-flex items-center justify-center h-7 w-7 rounded-lg bg-blue-600/15 hover:bg-blue-600/25 text-blue-400 hover:text-blue-300 border border-blue-500/30 transition shadow-sm" title="Открыть на Авито">
             <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
           </a>
         </td>

@@ -110,7 +110,7 @@ class AvitoDataExtractor:
             elif isinstance(raw["price"], str):
                 price = cls.clean_price(raw["price"])
 
-        price_string = raw.get("priceDetailed", {}).get("string") or (f"{price} ₽" if price else "Цена не указана")
+        price_string = (price_detailed.get("string") if isinstance(price_detailed, dict) else None) or (f"{price} ₽" if price is not None else "Цена не указана")
 
         # URL
         url_path = raw.get("urlPath") or raw.get("uri") or ""
@@ -191,7 +191,8 @@ class AvitoDataExtractor:
                     params[p["title"]] = str(p["value"])
 
         # Флаги
-        delivery = bool(raw.get("hasDelivery") or raw.get("delivery", {}).get("isAvailable"))
+        delivery_raw = raw.get("delivery")
+        delivery = bool(raw.get("hasDelivery") or (delivery_raw.get("isAvailable") if isinstance(delivery_raw, dict) else False))
         is_vip = bool(raw.get("isVip") or raw.get("isPromoted"))
 
         # Проверка статуса брони / резерва / закрытия

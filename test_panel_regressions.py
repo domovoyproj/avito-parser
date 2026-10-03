@@ -21,8 +21,9 @@ async def check():
                              ("GET", "/api/settings"), ("POST", "/api/monitoring/toggle")]:
             response = await client.request(method, path)
             assert response.status_code == 401, (path, response.status_code)
-        response = await client.post("/api/auth/login", json={"username": "admin", "password": "admin123"})
+        response = await client.post("/api/auth/login", json={"username": "admin", "password": "fixture-password-2026"})
         assert response.status_code == 200
+        client.headers["X-CSRF-Token"] = client.cookies["avito_csrf"]
         for grade in ("GEM", "HOT", "FAIR", "CAUTION"):
             await db.save_item(AvitoItem(id=f"grade-{grade}", title=grade, url="https://www.avito.ru/test", price=100))
         async with aiosqlite.connect(db.db_path) as connection:

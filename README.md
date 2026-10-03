@@ -125,7 +125,7 @@ start_telegram_bot.bat   :: Запуск Telegram-бота
 start_all.bat            :: Запуск всех сервисов одновременно
 ```
 
-> **Первый вход:** `admin` / `admin123`. Смените пароль в настройках панели после входа!
+> **Первый вход:** в активированном venv выполните `python setup_admin.py` и задайте свой пароль (не менее 12 символов). Известный пароль больше не создаётся. Существующие аккаунты сохраняются; смена пароля отзывает все их сессии. Для автоматического bootstrap можно временно задать `BOOTSTRAP_ADMIN_USERNAME` и `BOOTSTRAP_ADMIN_PASSWORD`, затем удалить секрет из окружения. За HTTPS reverse proxy включите `WEB_SECURE_COOKIES=true`.
 
 ### Вариант 2. Linux (Ubuntu / Debian) через systemd
 

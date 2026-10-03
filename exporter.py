@@ -1,5 +1,8 @@
 import csv
 import json
+from html import escape
+from urllib.parse import urlsplit
+from uuid import uuid4
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
@@ -11,6 +14,20 @@ from config import config
 from models import AvitoItem, ExportFormat
 
 
+def spreadsheet_value(value):
+    """Prevent spreadsheet applications from evaluating untrusted text."""
+    if isinstance(value, str) and value.lstrip().startswith(('=', '+', '-', '@', '\t', '\r', '\n')):
+        return "'" + value
+    return value
+
+
+def report_url(value):
+    try:
+        return escape(value, quote=True) if urlsplit(value).scheme in ('http', 'https') else ''
+    except (ValueError, TypeError):
+        return ''
+
+
 class AvitoExporter:
     def __init__(self, export_dir: Optional[Path] = None):
         self.export_dir = export_dir or config.export_dir
@@ -18,7 +35,7 @@ class AvitoExporter:
 
     def _generate_filename(self, prefix: str = "avito_export", ext: str = "xlsx") -> Path:
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        return self.export_dir / f"{prefix}_{timestamp}.{ext}"
+        return self.export_dir / f"{prefix}_{timestamp}_{uuid4().hex[:8]}.{ext}"
 
     def export_to_excel(self, items: List[AvitoItem], file_path: Optional[Path] = None) -> Path:
         """
@@ -95,11 +112,11 @@ class AvitoExporter:
             row_data = [
                 str(item.id),
                 item.title,
-                item.price or "",
-                item.old_price or "",
+                item.price if item.price is not None else "",
+                item.old_price if item.old_price is not None else "",
                 price_delta_str,
                 discount_pct_str,
-                item.deal_score or 50,
+                item.deal_score if item.deal_score is not None else 50,
                 item.deal_grade or "FAIR",
                 item.address or "",
                 item.metro or "",
@@ -112,7 +129,7 @@ class AvitoExporter:
                 item.url,
                 item.main_image or ""
             ]
-            ws.append(row_data)
+            ws.append([spreadsheet_value(value) for value in row_data])
 
             # Оформление ячеек строки
             for col_idx in range(1, len(headers) + 1):
@@ -138,14 +155,14 @@ class AvitoExporter:
                     cell.number_format = "#,##0 ₽"
 
                 # Ссылка на объявление
-                if col_idx == 15 and item.url:
+                if col_idx == 17 and report_url(item.url):
                     cell.hyperlink = item.url
                     cell.value = "Открыть на Авито"
                     cell.font = link_font
                     cell.alignment = Alignment(horizontal="center", vertical="center")
 
                 # Ссылка на фото
-                if col_idx == 16 and item.main_image:
+                if col_idx == 18 and report_url(item.main_image):
                     cell.hyperlink = item.main_image
                     cell.value = "Посмотреть фото"
                     cell.font = link_font
@@ -181,16 +198,17 @@ class AvitoExporter:
             writer = csv.DictWriter(f, fieldnames=fieldnames, delimiter=";")
             writer.writeheader()
             for it in items:
-                writer.writerow({
+                row = {
                     "id": it.id,
                     "title": it.title,
-                    "price": it.price or "",
+                    "price": it.price if it.price is not None else "",
                     "old_price": it.old_price or "",
                     "price_string": it.price_string or "",
-                    "deal_score": it.deal_score or 50,
+                    "deal_score": it.deal_score if it.deal_score is not None else 50,
                     "deal_grade": it.deal_grade or "FAIR",
                     "ai_summary": it.ai_summary or "",
                     "is_hot_deal": 1 if it.is_hot_deal else 0,
+                    "url": it.url,
                     "address": it.address or "",
                     "metro": it.metro or "",
                     "delivery_available": "Да" if it.delivery_available else "Нет",
@@ -199,7 +217,8 @@ class AvitoExporter:
                     "seller_rating": it.seller.rating if it.seller else "",
                     "seller_reviews": it.seller.reviews_count if it.seller else "",
                     "main_image": it.main_image or ""
-                })
+                }
+                writer.writerow({key: spreadsheet_value(value) for key, value in row.items()})
 
         return file_path
 
@@ -220,7 +239,8 @@ class AvitoExporter:
             file_path = self._generate_filename(prefix="avito_report", ext="html")
 
         total_count = len(items)
-        avg_price = int(sum(it.price for it in items if it.price) / total_count) if total_count > 0 else 0
+        prices = [it.price for it in items if it.price is not None]
+        avg_price = int(sum(prices) / len(prices)) if prices else 0
         drops_count = sum(1 for it in items if it.old_price and it.price and it.price < it.old_price)
         total_val = sum(it.price or 0 for it in items)
 
@@ -229,24 +249,25 @@ class AvitoExporter:
             has_discount = it.old_price and it.price and it.price < it.old_price
             discount_pct = round(((it.old_price - it.price) / it.old_price) * 100) if has_discount else 0
             img_src = it.main_image or "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 300' fill='%230f172a'%3E%3Crect width='100%25' height='100%25'/%3E%3Ctext x='50%25' y='50%25' fill='%23475569' text-anchor='middle'%3EБез фото%3C/text%3E%3C/svg%3E"
-            price_formatted = f"{it.price:,} ₽".replace(",", " ") if it.price else "Цена не указана"
+            img_src = report_url(it.main_image) if it.main_image else img_src
+            price_formatted = f"{it.price:,} ₽".replace(",", " ") if it.price is not None else "Цена не указана"
             old_price_formatted = f"{it.old_price:,} ₽".replace(",", " ") if it.old_price else ""
 
             cards_html.append(f"""
-            <div class="card" data-title="{it.title.lower()}" data-price="{it.price or 0}">
+            <div class="card" data-title="{escape(it.title.lower(), quote=True)}" data-price="{it.price or 0}">
                 <div class="img-wrap">
-                    <img src="{img_src}" loading="lazy" alt="{it.title}">
+                    <img src="{img_src}" loading="lazy" alt="{escape(it.title, quote=True)}">
                     {"<span class='badge badge-drop'>-" + str(discount_pct) + "%</span>" if has_discount else ""}
                     {"<span class='badge badge-hot'>🔥 ВЫГОДНО</span>" if it.is_hot_deal else ""}
                 </div>
                 <div class="card-body">
-                    <div class="title" title="{it.title}">{it.title}</div>
+                    <div class="title" title="{escape(it.title, quote=True)}">{escape(it.title)}</div>
                     <div class="price-row">
                         <span class="price">{price_formatted}</span>
                         {"<span class='old-price'>" + old_price_formatted + "</span>" if old_price_formatted else ""}
                     </div>
-                    <div class="meta">{it.address or it.metro or 'Россия'}</div>
-                    <a href="{it.url}" target="_blank" class="btn">Открыть на Авито ↗</a>
+                    <div class="meta">{escape(it.address or it.metro or 'Россия')}</div>
+                    <a href="{report_url(it.url)}" target="_blank" rel="noopener noreferrer" class="btn">Открыть на Авито ↗</a>
                 </div>
             </div>
             """)

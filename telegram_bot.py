@@ -368,36 +368,11 @@ async def cmd_check_all(event: types.Message | types.CallbackQuery):
             await event.answer()
         return
 
+    from monitoring import monitor_service
+    result = await monitor_service.run_all_now()
     total_found = 0
-    total_new = 0
-    total_drops = 0
-    chat_id = msg.chat.id
-
-    for s in searches:
-        res = await browser_engine.parse_search(s.url, max_pages=1)
-        if res.items:
-            for it in res.items:
-                it.search_query_id = s.id
-            save_res = await db.save_items(res.items)
-            total_found += len(res.items)
-            total_new += save_res["new_count"]
-            total_drops += save_res["price_drop_count"]
-
-            for new_it in save_res["new_items"]:
-                if not await db.is_notification_sent(new_it.id, s.id, "new"):
-                    await send_item_card(msg.bot, chat_id, new_it, s.name, "new")
-                    await db.mark_notification_sent(new_it.id, s.id, "new")
-                    await asyncio.sleep(0.3)
-
-            for ch in save_res["price_changes"]:
-                if not await db.is_notification_sent(ch.item_id, s.id, "price_drop"):
-                    item_obj = await db.get_item_by_id(ch.item_id)
-                    if item_obj:
-                        await send_item_card(msg.bot, chat_id, item_obj, s.name, "price_drop")
-                        await db.mark_notification_sent(ch.item_id, s.id, "price_drop")
-                        await asyncio.sleep(0.3)
-
-        await db.update_search_last_checked(s.id)
+    total_new = result.get("new", 0)
+    total_drops = result.get("drops", 0)
 
     await status.edit_text(
         f"✅ <b>Проверка завершена!</b>\n\n"
@@ -492,69 +467,7 @@ async def cb_tg_ai_verdict(call: types.CallbackQuery):
     else:
         await call.message.reply('❌ Не удалось получить вердикт от AI. Проверьте настройки и API ключ.')
 
-async def format_item_notification(item: AvitoItem, search_name: str, notif_type: str = "new") -> str:
-    """Форматирование карточки уведомления для Telegram с бейджами AI Score"""
-    header = "🆕 <b>НОВОЕ ОБЪЯВЛЕНИЕ</b>" if notif_type == "new" else "📉 <b>ЦЕНА СНИЗИЛАСЬ!</b>"
-    
-    # Бейдж градации сделки
-    score_val = item.deal_score if item.deal_score is not None else 50
-    if score_val >= 85:
-        grade_badge = f"💎 <b>GEM-ЛОТ (Score: {score_val}/100)</b>"
-    elif score_val >= 70:
-        grade_badge = f"🔥 <b>ВЫГОДНАЯ СДЕЛКА (Score: {score_val}/100)</b>"
-    elif score_val >= 50:
-        grade_badge = f"⚖️ <b>FAIR (Score: {score_val}/100)</b>"
-    else:
-        grade_badge = f"⚠️ <b>Внимание/Риск (Score: {score_val}/100)</b>"
-    
-    market_info_line = ""
-    if item.price and item.search_query_id:
-        market_avg = await db.get_search_market_price(item.search_query_id)
-        if market_avg and market_avg > item.price:
-            savings_rub = market_avg - item.price
-            pct_below = round((savings_rub / market_avg) * 100)
-            if pct_below >= 10:
-                market_info_line = f"\n📊 <b>Средняя цена:</b> {market_avg:,} ₽ <i>(выгода {savings_rub:,} ₽ / -{pct_below}%)</i>".replace(",", " ")
-
-    price_str = f"<b>{item.price:,} ₽</b>".replace(",", " ") if item.price else "Цена не указана"
-    
-    if notif_type == "price_drop" and item.old_price and item.price:
-        old_str = f"{item.old_price:,} ₽".replace(",", " ")
-        delta = item.old_price - item.price
-        price_str += f" <i>(было {old_str}, скидка {delta:,} ₽)</i>".replace(",", " ")
-
-    esc_title = html.escape(item.title or "Без названия")
-    esc_search = html.escape(search_name or "Поиск")
-    esc_address = html.escape(item.address or "Не указана")
-    esc_seller = f"\n👤 <b>Продавец:</b> {html.escape(item.seller.name)}" if item.seller and item.seller.name else ""
-    delivery_badge = " | 🚚 Авито Доставка" if item.delivery_available else ""
-
-    reasons_block = ""
-    if item.deal_reasons:
-        reasons_block = "\n" + "\n".join([f"  ✅ {html.escape(r)}" for r in item.deal_reasons[:3]])
-
-    flaws_block = ""
-    if item.detected_flaws:
-        flaws_block = "\n" + "\n".join([f"  ⚠️ <b>Внимание:</b> {html.escape(f)}" for f in item.detected_flaws[:2]])
-
-    ai_summary_block = ""
-    if item.ai_summary:
-        ai_summary_block = f"\n\n🤖 <b>AI-Вердикт:</b> <i>{html.escape(item.ai_summary)}</i>"
-
-    card = (
-        f"{header}\n"
-        f"{grade_badge}\n"
-        f"🎯 <b>Поиск:</b> {esc_search}\n\n"
-        f"📦 <b>{esc_title}</b>\n"
-        f"💰 <b>Цена:</b> {price_str}{market_info_line}\n"
-        f"📍 <b>Локация:</b> {esc_address}{delivery_badge}{esc_seller}"
-        f"{reasons_block}"
-        f"{flaws_block}"
-        f"{ai_summary_block}\n\n"
-        f"🔗 <a href='{item.url}'>Открыть объявление на Авито</a>"
-    )
-    return card
-
+from notifications import format_item_notification
 
 async def send_item_card(bot: Bot, chat_id: int, item: AvitoItem, search_name: str, notif_type: str):
     """Отправка карточки товара с учетом персональных настроек чата"""
@@ -630,7 +543,19 @@ async def run_bot():
     bot = Bot(token=config.telegram.bot_token)
     
     logger.info("🟢 Telegram бот успешно подключен и слушает команды...")
-    await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
+    from outbox import outbox_worker
+    from monitoring import monitor_service
+    delivery_task = asyncio.create_task(outbox_worker.run())
+    await monitor_service.start()
+    try:
+        await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
+    finally:
+        delivery_task.cancel()
+        try:
+            await delivery_task
+        except asyncio.CancelledError:
+            pass
+        await monitor_service.stop()
 
 
 if __name__ == "__main__":

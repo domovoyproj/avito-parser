@@ -96,6 +96,9 @@ class PriceStats(BaseModel):
 
 
 class ParseResult(BaseModel):
+    outcome: str = "empty"  # success | empty | partial | blocked | error
+    source: Optional[str] = None
+    exhaustive: bool = False  # page-limited monitoring cannot prove deletion
     items: List[AvitoItem] = Field(default_factory=list)
     total_found: int = 0
     new_items_count: int = 0
@@ -121,7 +124,7 @@ class User(BaseModel):
 
 class UserCreate(BaseModel):
     username: str = Field(min_length=3, max_length=50)
-    password: str = Field(min_length=4, max_length=100)
+    password: str = Field(min_length=12, max_length=100)
     role: UserRole = UserRole.OPERATOR
 
 
@@ -139,7 +142,7 @@ class LoginRequest(BaseModel):
 
 class ChangePasswordRequest(BaseModel):
     old_password: str
-    new_password: str = Field(min_length=4)
+    new_password: str = Field(min_length=12, max_length=100)
 
 
 class TelegramChatSettings(BaseModel):

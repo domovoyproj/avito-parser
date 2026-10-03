@@ -1,4 +1,5 @@
 import asyncio
+import tempfile
 from pathlib import Path
 import httpx
 from config import config
@@ -13,6 +14,8 @@ async def run_web_tests():
     # 1. Инициализация БД с тестовыми данными
     print("1. Инициализация базы данных и тестовых данных...")
     await db.init_db()
+    if not await db.get_all_users():
+        await db.bootstrap_admin("admin", "fixture-password-2026")
 
     # Добавляем тестовый поиск
     search_id = await db.add_search(SearchQuery(
@@ -55,9 +58,10 @@ async def run_web_tests():
     print("2. Тестирование авторизации и HTML маршрутов веб-панели...")
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
         # Авторизация супер-админа
-        login_res = await client.post("/api/auth/login", json={"username": "admin", "password": "admin123"})
+        login_res = await client.post("/api/auth/login", json={"username": "admin", "password": "fixture-password-2026"})
         assert login_res.status_code == 200, f"Login failed: {login_res.text}"
-        print("   ✓ Авторизация admin/admin123: OK (200)")
+        client.headers["X-CSRF-Token"] = client.cookies["avito_csrf"]
+        print("   ✓ Авторизация fixture-admin: OK (200)")
 
         pages = [
             "/",
@@ -174,4 +178,9 @@ async def run_web_tests():
 
 
 if __name__ == "__main__":
-    asyncio.run(run_web_tests())
+    from exporter import exporter
+    with tempfile.TemporaryDirectory() as directory:
+        db.db_path = Path(directory) / "web.db"
+        config.export_dir = exporter.export_dir = Path(directory) / "exports"
+        config.export_dir.mkdir()
+        asyncio.run(run_web_tests())

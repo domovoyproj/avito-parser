@@ -9,6 +9,9 @@
 import json
 import logging
 import re
+import hashlib
+import time
+from collections import OrderedDict
 from typing import Dict, List, Optional, Tuple
 import httpx
 
@@ -44,6 +47,9 @@ class DealScoringEngine:
     # Пользовательские правила скоринга (загружаются из БД)
     _custom_penalties: List[Tuple[str, str]] = []
     _custom_boosters: List[Tuple[str, str, int]] = []
+    _verdict_cache = OrderedDict()
+    _budget_day = ''
+    _budget_calls = 0
 
     @classmethod
     def detect_flaws(cls, text: str) -> List[str]:
@@ -362,7 +368,7 @@ class DealScoringEngine:
         
         prompt_content = f"""Проанализируй объявление на Авито и дай краткий экспертный вердикт (2-3 емких предложения на русском):
 - Товар: {item.title}
-- Цена: {item.price:,} руб. ({market_context})
+- Цена: {format(item.price, ',') if item.price is not None else 'не указана'} руб. ({market_context})
 - Старая цена: {item.old_price} руб.
 - Локация: {item.address or item.metro or 'Не указана'}
 - Авито Доставка: {'Да' if item.delivery_available else 'Нет'}
@@ -397,6 +403,18 @@ class DealScoringEngine:
         }
 
         url = f"{api_base}/chat/completions"
+        cache_key = hashlib.sha256(json.dumps([url, model, payload, hashlib.sha256(api_key.encode()).hexdigest()], sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+        cached = cls._verdict_cache.get(cache_key)
+        if cached and time.time() - cached[0] < 86400:
+            cls._verdict_cache.move_to_end(cache_key)
+            return cached[1]
+        day = time.strftime('%Y-%m-%d')
+        if cls._budget_day != day:
+            cls._budget_day, cls._budget_calls = day, 0
+        if cls._budget_calls >= 100:
+            logger.warning('LLM daily process budget exhausted')
+            return None
+        cls._budget_calls += 1
 
         try:
             async with httpx.AsyncClient(timeout=25.0) as client:
@@ -406,11 +424,14 @@ class DealScoringEngine:
                     choices = data.get("choices", [])
                     if choices and len(choices) > 0:
                         verdict = choices[0].get("message", {}).get("content", "").strip()
-                        return verdict
+                        cls._verdict_cache[cache_key] = (time.time(), verdict[:2000])
+                        while len(cls._verdict_cache) > 1024:
+                            cls._verdict_cache.popitem(last=False)
+                        return verdict[:2000]
                 else:
-                    logger.warning(f"Ошибка вызова LLM API ({url}, status {response.status_code}): {response.text[:200]}")
+                    logger.warning('LLM request failed: HTTP %s', response.status_code)
         except Exception as e:
-            logger.error(f"Исключение при генерации AI-вердикта: {e}")
+            logger.error('LLM request failed: %s', type(e).__name__)
 
         return None
 

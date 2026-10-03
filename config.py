@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field, model_validator
 from dotenv import load_dotenv, set_key
 
 BASE_DIR = Path(__file__).resolve().parent
-ENV_FILE = BASE_DIR / ".env"
+ENV_FILE = Path(os.getenv('APP_ENV_FILE', str(BASE_DIR / '.env')))
 load_dotenv(ENV_FILE)
 
 
@@ -46,6 +46,7 @@ class TelegramConfig(BaseModel):
 
 
 class WebConfig(BaseModel):
+    secure_cookies: bool = Field(default=False, description="HTTPS-only cookies за TLS reverse proxy")
     host: str = Field(default="127.0.0.1", description="Хост для запуска веб-панели")
     port: int = Field(default=8000, description="Порт веб-панели")
     auto_open_browser: bool = Field(default=True, description="Автоматически открывать браузер при запуске")
@@ -122,6 +123,7 @@ class AppConfig(BaseModel):
             config.proxy.enabled = proxy_enabled.lower() in ("true", "1", "yes")
 
         web_host = os.getenv("WEB_HOST", "").strip()
+        config.web.secure_cookies = os.getenv("WEB_SECURE_COOKIES", "false").lower() in ("true", "1", "yes")
         if web_host:
             config.web.host = web_host
 

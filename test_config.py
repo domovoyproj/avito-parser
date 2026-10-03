@@ -139,14 +139,17 @@ class SettingsAPITests(unittest.IsolatedAsyncioTestCase):
             context.start()
             self.addCleanup(context.stop)
         await db.init_db()
+        await db.bootstrap_admin("admin", "fixture-password-2026")
+        web_server.login_limiter.entries.clear()
         self.client = httpx.AsyncClient(transport=httpx.ASGITransport(app=web_server.app), base_url="http://test")
         self.addAsyncCleanup(self.client.aclose)
         self.payload = dict(headless=False, timeout_ms=7500, page_delay_min=0.1,
                             page_delay_max=0.2, proxy_enabled=True,
                             default_proxy="127.0.0.1:8080", send_photos=False,
                             notification_interval_min=15, admin_chat_ids=[123])
-        response = await self.client.post("/api/auth/login", json={"username": "admin", "password": "admin123"})
+        response = await self.client.post("/api/auth/login", json={"username": "admin", "password": "fixture-password-2026"})
         self.assertEqual(response.status_code, 200)
+        self.client.headers["X-CSRF-Token"] = self.client.cookies["avito_csrf"]
 
     async def test_api_round_trip_updates_running_engines(self):
         self.env_file.write_text("CUSTOM=retained\n", encoding="utf-8")

@@ -12,6 +12,7 @@ import random
 import re
 import sys
 import time
+import secrets
 from typing import Any, Dict, List, Optional
 import httpx
 import uvicorn
@@ -34,6 +35,7 @@ from models import (
 from ai_scoring import deal_scoring_engine
 from parser_core import AvitoDataExtractor
 from proxy_manager import ProxyManager, proxy_manager
+from security import login_limiter, same_origin
 
 # --- Логирование и кольцевой буфер для Веб-панели ---
 class WebLogBuffer(logging.Handler):
@@ -71,334 +73,7 @@ root_logger.addHandler(log_buffer)
 logger = logging.getLogger("AvitoWeb")
 
 # --- Сервис фонового мониторинга ---
-class MonitoringService:
-    def __init__(self):
-        self.is_running: bool = False
-        self.task: Optional[asyncio.Task] = None
-        self.last_run: Optional[datetime] = None
-        self.next_run: Optional[datetime] = None
-        self.current_checking: Optional[str] = None
-        self.last_results: Dict[str, Any] = {"new": 0, "drops": 0, "errors": 0}
-
-    async def start(self):
-        if self.is_running:
-            return
-        self.is_running = True
-        self.task = asyncio.create_task(self._loop())
-        logger.info("🟢 Фоновый сервис мониторинга Авито запущен")
-
-    async def stop(self):
-        if not self.is_running:
-            return
-        self.is_running = False
-        if self.task:
-            self.task.cancel()
-            try:
-                await self.task
-            except asyncio.CancelledError:
-                pass
-            self.task = None
-        self.current_checking = None
-        logger.info("🔴 Фоновый сервис мониторинга Авито остановлен")
-
-    async def _send_telegram_notification(self, item: AvitoItem, search_name: str, notif_type: str):
-        """Отправка уведомления в Telegram через HTTP API Bot"""
-        if not config.telegram.bot_token or not config.telegram.admin_chat_ids:
-            return
-
-        header = "🆕 <b>НОВОЕ ОБЪЯВЛЕНИЕ</b>" if notif_type == "new" else "📉 <b>ЦЕНА СНИЗИЛАСЬ!</b>"
-        
-        score_val = item.deal_score if item.deal_score is not None else 50
-        if score_val >= 85:
-            grade_badge = f"💎 <b>GEM-ЛОТ (Score: {score_val}/100)</b>"
-        elif score_val >= 70:
-            grade_badge = f"🔥 <b>ВЫГОДНАЯ СДЕЛКА (Score: {score_val}/100)</b>"
-        elif score_val >= 50:
-            grade_badge = f"⚖️ <b>FAIR (Score: {score_val}/100)</b>"
-        else:
-            grade_badge = f"⚠️ <b>Внимание/Риск (Score: {score_val}/100)</b>"
-
-        market_info_line = ""
-        if item.price and item.search_query_id:
-            market_avg = await db.get_search_market_price(item.search_query_id)
-            if market_avg and market_avg > item.price:
-                savings_rub = market_avg - item.price
-                pct_below = round((savings_rub / market_avg) * 100)
-                if pct_below >= 10:
-                    market_info_line = f"\n📊 <b>Средняя цена:</b> {market_avg:,} ₽ <i>(выгода {savings_rub:,} ₽ / -{pct_below}%)</i>".replace(",", " ")
-
-        price_str = f"<b>{item.price:,} ₽</b>".replace(",", " ") if item.price else "Цена не указана"
-        if notif_type == "price_drop" and item.old_price and item.price:
-            old_str = f"{item.old_price:,} ₽".replace(",", " ")
-            delta = item.old_price - item.price
-            price_str += f" <i>(было {old_str}, скидка {delta:,} ₽)</i>".replace(",", " ")
-
-        esc_title = html.escape(item.title or "Без названия")
-        esc_search = html.escape(search_name or "Поиск")
-        esc_address = html.escape(item.address or "Не указана")
-        esc_seller = f"\n👤 <b>Продавец:</b> {html.escape(item.seller.name)}" if item.seller and item.seller.name else ""
-        delivery_badge = " | 🚚 Авито Доставка" if item.delivery_available else ""
-
-        reasons_block = ""
-        if item.deal_reasons:
-            reasons_block = "\n" + "\n".join([f"  ✅ {html.escape(r)}" for r in item.deal_reasons[:3]])
-
-        flaws_block = ""
-        if item.detected_flaws:
-            flaws_block = "\n" + "\n".join([f"  ⚠️ <b>Внимание:</b> {html.escape(f)}" for f in item.detected_flaws[:2]])
-
-        ai_summary_block = ""
-        if item.ai_summary:
-            ai_summary_block = f"\n\n🤖 <b>AI-Вердикт:</b> <i>{html.escape(item.ai_summary)}</i>"
-
-        text = (
-            f"{header}\n"
-            f"{grade_badge}\n"
-            f"🎯 <b>Поиск:</b> {esc_search}\n\n"
-            f"📦 <b>{esc_title}</b>\n"
-            f"💰 <b>Цена:</b> {price_str}{market_info_line}\n"
-            f"📍 <b>Локация:</b> {esc_address}{delivery_badge}{esc_seller}"
-            f"{reasons_block}"
-            f"{flaws_block}"
-            f"{ai_summary_block}\n\n"
-            f"🔗 <a href='{item.url}'>Открыть объявление на Авито</a>"
-        )
-
-        reply_markup = {
-            "inline_keyboard": [
-                [{"text": "↗️ На Авито", "url": item.url}],
-                [
-                    {"text": "⭐", "callback_data": f"tg_fav_{item.id}"},
-                    {"text": "🙈", "callback_data": f"tg_hide_{item.id}"},
-                    {"text": "🤖 AI", "callback_data": f"tg_ai_{item.id}"}
-                ]
-            ]
-        }
-
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            for chat_id in config.telegram.admin_chat_ids:
-                try:
-                    settings = await db.get_chat_settings(chat_id)
-                    if notif_type == "new" and not settings.notify_new:
-                        continue
-                    if notif_type == "price_drop" and not settings.notify_drops:
-                        continue
-                    if settings.delivery_only and not item.delivery_available:
-                        continue
-                    if settings.min_deal_score > 0 and (item.deal_score or 0) < settings.min_deal_score:
-                        continue
-
-                    # Проверка фильтра "Только дешевле рынка"
-                    if settings.only_below_market and item.price and item.search_query_id:
-                        market_avg = await db.get_search_market_price(item.search_query_id)
-                        if market_avg and market_avg > 0:
-                            threshold = settings.below_market_pct / 100.0
-                            max_allowed = int(market_avg * (1.0 - threshold))
-                            if item.price > max_allowed:
-                                continue
-
-                    if notif_type == "price_drop" and settings.min_discount_pct > 0 and item.old_price and item.price:
-                        discount_pct = round(((item.old_price - item.price) / item.old_price) * 100)
-                        if discount_pct < settings.min_discount_pct:
-                            continue
-                    if settings.send_photos and item.main_image:
-                        url = f"https://api.telegram.org/bot{config.telegram.bot_token}/sendPhoto"
-                        payload = {
-                            "chat_id": chat_id,
-                            "photo": item.main_image,
-                            "caption": text,
-                            "parse_mode": "HTML",
-                            "reply_markup": json.dumps(reply_markup)
-                        }
-                    else:
-                        url = f"https://api.telegram.org/bot{config.telegram.bot_token}/sendMessage"
-                        payload = {
-                            "chat_id": chat_id,
-                            "text": text,
-                            "parse_mode": "HTML",
-                            "reply_markup": json.dumps(reply_markup)
-                        }
-                    await client.post(url, data=payload)
-                    await asyncio.sleep(0.3)
-                except Exception as e:
-                    logger.error(f"Ошибка отправки в Telegram для chat_id={chat_id}: {e}")
-    async def _send_webhook_notification(self, item: AvitoItem, search_name: str, notif_type: str):
-        """Отправка уведомления через Webhook (JSON POST)"""
-        try:
-            settings = await db.get_webhook_settings()
-        except Exception:
-            return
-        if not settings.enabled or not settings.url:
-            return
-        if settings.min_deal_score > 0 and (item.deal_score or 0) < settings.min_deal_score:
-            return
-        if notif_type == "new" and not settings.send_new:
-            return
-        if notif_type == "price_drop" and not settings.send_drops:
-            return
-
-        payload = {
-            'event': notif_type,
-            'item': {
-                'id': item.id,
-                'title': item.title,
-                'price': item.price,
-                'old_price': item.old_price,
-                'url': item.url,
-                'deal_score': item.deal_score,
-                'deal_grade': item.deal_grade,
-                'deal_reasons': item.deal_reasons,
-                'detected_flaws': item.detected_flaws,
-                'address': item.address,
-                'delivery_available': item.delivery_available,
-                'main_image': item.main_image,
-            },
-            'search_name': search_name,
-            'timestamp': datetime.now().isoformat()
-        }
-
-        headers = {"Content-Type": "application/json"}
-        body_bytes = json.dumps(payload, ensure_ascii=False, default=str).encode("utf-8")
-        if settings.secret:
-            sig = hmac.new(settings.secret.encode("utf-8"), body_bytes, hashlib.sha256).hexdigest()
-            headers["X-Webhook-Signature"] = sig
-
-        try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                resp = await client.post(settings.url, content=body_bytes, headers=headers)
-                if resp.status_code >= 400:
-                    logger.warning(f"⚠️ Webhook вернул HTTP {resp.status_code} для {notif_type} ({item.id})")
-        except Exception as e:
-            logger.error(f"Ошибка отправки Webhook ({notif_type}, {item.id}): {e}")
-
-    async def check_search(self, search: SearchQuery) -> Dict[str, int]:
-        """Проверка одного поискового запроса"""
-        # Проверка активных часов поиска
-        now_hour = datetime.now().hour
-        start = getattr(search, 'active_hours_start', 0)
-        end = getattr(search, 'active_hours_end', 24)
-        if end == 24:
-            pass  # 24/7 мониторинг
-        elif start < end:
-            if now_hour < start or now_hour >= end:
-                logger.info(f"⏸ Поиск '{search.name}' вне активных часов ({start}:00-{end}:00), пропуск")
-                return {'new': 0, 'drops': 0}
-        else:  # ночное расписание, например 22-8
-            if end <= now_hour < start:
-                logger.info(f"⏸ Поиск '{search.name}' вне активных часов ({start}:00-{end}:00), пропуск")
-                return {'new': 0, 'drops': 0}
-
-        self.current_checking = search.name
-        logger.info(f"🔎 Мониторинг: проверка поиска #{search.id} '{search.name}'...")
-        new_count = 0
-        drop_count = 0
-
-        try:
-            # Сначала пробуем быстрый HTTP-парсер, при неудаче — браузерный
-            result = None
-            engine_used = "http"
-            try:
-                result = await http_engine.parse_search(search.url, max_pages=1)
-            except Exception as e:
-                logger.debug(f"HTTP-парсер не смог обработать '{search.name}': {e}")
-                result = None
-
-            if not result or not result.items:
-                engine_used = "browser"
-                result = await browser_engine.parse_search(search.url, max_pages=1)
-
-            logger.info(f"⚙️ Поиск '{search.name}': использован {engine_used}-движок")
-
-            if result.items:
-                # Привязываем search_query_id
-                for it in result.items:
-                    it.search_query_id = search.id
-
-                save_res = await db.save_items(result.items)
-                new_count = save_res["new_count"]
-                drop_count = save_res["price_drop_count"]
-
-                # Автоматическая синхронизация: помечаем отсутствующие лоты как закрытые/проданные
-                active_ids = [it.id for it in result.items]
-                closed_cnt = await db.cleanup_stale_items(search.id, active_ids)
-                if closed_cnt > 0:
-                    logger.info(f"🧹 Поиск '{search.name}': скрыто {closed_cnt} проданных/исчезнувших лотов")
-
-                # Логирование скорости рынка для выгодных лотов
-                try:
-                    lifetime_stats = await db.get_gem_lifetime_stats()
-                    if lifetime_stats and lifetime_stats.get('count', 0) > 0:
-                        avg_h = lifetime_stats.get('avg_hours', 0)
-                        logger.info(f"📊 Скорость рынка: выгодные лоты живут в среднем {avg_h:.1f}ч (выборка: {lifetime_stats['count']})")
-                except Exception:
-                    pass
-
-                # Отправка уведомлений (Telegram + Webhook)
-                for new_item in save_res["new_items"]:
-                    if not await db.is_notification_sent(new_item.id, search.id, "new"):
-                        await self._send_telegram_notification(new_item, search.name, "new")
-                        await self._send_webhook_notification(new_item, search.name, "new")
-                        await db.mark_notification_sent(new_item.id, search.id, "new")
-
-                for change in save_res["price_changes"]:
-                    if not await db.is_notification_sent(change.item_id, search.id, "price_drop"):
-                        item_obj = await db.get_item_by_id(change.item_id)
-                        if item_obj:
-                            await self._send_telegram_notification(item_obj, search.name, "price_drop")
-                            await self._send_webhook_notification(item_obj, search.name, "price_drop")
-                            await db.mark_notification_sent(change.item_id, search.id, "price_drop")
-
-                logger.info(f"✓ Поиск '{search.name}': найдено {len(result.items)} объявлений (новых: {new_count}, скидок: {drop_count})")
-
-            await db.update_search_last_checked(search.id)
-        except Exception as e:
-            logger.error(f"Ошибка при проверке поиска '{search.name}': {e}")
-        finally:
-            self.current_checking = None
-
-        return {"new": new_count, "drops": drop_count}
-
-    async def run_all_now(self) -> Dict[str, int]:
-        """Принудительная проверка всех включенных поисков (параллельно, макс. 3 одновременно)"""
-        searches = await db.get_searches(enabled_only=True)
-        total_new = 0
-        total_drops = 0
-        self.last_run = datetime.now()
-
-        sem = asyncio.Semaphore(3)  # макс. 3 параллельных проверки
-
-        async def check_with_sem(s):
-            async with sem:
-                return await self.check_search(s)
-
-        tasks = [check_with_sem(s) for s in searches]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-
-        for res in results:
-            if isinstance(res, dict):
-                total_new += res.get('new', 0)
-                total_drops += res.get('drops', 0)
-
-        self.last_results = {'new': total_new, 'drops': total_drops, 'errors': sum(1 for r in results if isinstance(r, Exception))}
-        interval = config.telegram.notification_interval_min
-        self.next_run = datetime.now() + timedelta(minutes=interval)
-        return self.last_results
-
-    async def _loop(self):
-        while self.is_running:
-            try:
-                await self.run_all_now()
-            except Exception as e:
-                logger.error(f"Ошибка в цикле мониторинга: {e}")
-            
-            interval_sec = config.telegram.notification_interval_min * 60
-            self.next_run = datetime.now() + timedelta(seconds=interval_sec)
-            try:
-                await asyncio.sleep(interval_sec)
-            except asyncio.CancelledError:
-                break
-
-monitor_service = MonitoringService()
+from monitoring import MonitoringService, monitor_service
 
 # --- Менеджер активных парсинг-сессий (WebSockets) ---
 class ParsingJobManager:
@@ -466,9 +141,17 @@ async def lifespan(app: FastAPI):
     searches = await db.get_searches(enabled_only=True)
     if searches:
         await monitor_service.start()
-    yield
-    # Остановка
-    await monitor_service.stop()
+    from outbox import outbox_worker
+    outbox_task = asyncio.create_task(outbox_worker.run())
+    try:
+        yield
+    finally:
+        outbox_task.cancel()
+        try:
+            await outbox_task
+        except asyncio.CancelledError:
+            pass
+        await monitor_service.stop()
     logger.info("Веб-панель Avito Parser остановлена")
 
 app = FastAPI(
@@ -478,9 +161,24 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+
+@app.get('/health', include_in_schema=False)
+async def health():
+    return {'status': 'ok'}
+
+
+@app.get('/ready', include_in_schema=False)
+async def ready():
+    try:
+        async with db.connection() as connection:
+            await connection.execute('SELECT 1 FROM schema_migrations LIMIT 1')
+        return {'status': 'ready'}
+    except Exception:
+        return JSONResponse(status_code=503, content={'status': 'unavailable'})
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -496,37 +194,36 @@ templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 # АВТОРИЗАЦИЯ И СЕССИИ
 # ==============================================================================
 
-SESSION_COOKIE_NAME = "avito_session"
-
-async def get_optional_user(request: Request) -> Optional[User]:
-    token = request.cookies.get(SESSION_COOKIE_NAME)
-    if not token:
-        auth_hdr = request.headers.get("Authorization")
-        if auth_hdr and auth_hdr.startswith("Bearer "):
-            token = auth_hdr[7:].strip()
-    if not token:
-        return None
-    return await db.get_user_by_session(token)
-
-async def require_auth(request: Request) -> User:
-    user = await get_optional_user(request)
-    if not user:
-        raise HTTPException(status_code=401, detail="Требуется авторизация")
-    return user
-
+from auth_dependencies import SESSION_COOKIE_NAME, CSRF_COOKIE_NAME, get_optional_user, require_auth, require_admin
 
 @app.middleware("http")
 async def protect_api(request: Request, call_next):
     """Apply session authentication to the complete API, including exports."""
-    if request.url.path.startswith("/api/") and request.url.path != "/api/auth/login":
-        if not await get_optional_user(request):
+    path = request.url.path
+    if path.startswith("/api/"):
+        unsafe = request.method not in ("GET", "HEAD", "OPTIONS")
+        origin = request.headers.get("origin")
+        if unsafe and ((origin and not same_origin(origin, request.url)) or request.headers.get("sec-fetch-site") == "cross-site"):
+            return JSONResponse(status_code=403, content={"detail": "Недопустимый источник запроса"})
+        if path == "/api/auth/login":
+            return await call_next(request)
+        user = await get_optional_user(request)
+        if not user:
             return JSONResponse(status_code=401, content={"detail": "Требуется авторизация"})
-    return await call_next(request)
-
-async def require_admin(user: User = Depends(require_auth)) -> User:
-    if user.role != UserRole.ADMIN:
-        raise HTTPException(status_code=403, detail="Доступ разрешен только администраторам")
-    return user
+        if unsafe and request.cookies.get(SESSION_COOKIE_NAME):
+            csrf = request.cookies.get(CSRF_COOKIE_NAME, "")
+            if not csrf or not hmac.compare_digest(csrf, request.headers.get("x-csrf-token", "")):
+                return JSONResponse(status_code=403, content={"detail": "Недопустимый CSRF-токен"})
+        admin_paths = ("/api/admin/", "/api/settings", "/api/ai/", "/api/proxies", "/api/telegram/", "/api/webhook", "/api/scoring/", "/api/logs")
+        if path.startswith(admin_paths) and user.role != UserRole.ADMIN:
+            return JSONResponse(status_code=403, content={"detail": "Требуются права администратора"})
+        if unsafe and user.role == UserRole.VIEWER and not path.startswith("/api/auth/"):
+            return JSONResponse(status_code=403, content={"detail": "Доступ только для просмотра"})
+    response = await call_next(request)
+    if path.startswith("/api/") and request.method == "GET" and request.cookies.get(SESSION_COOKIE_NAME) and not request.cookies.get(CSRF_COOKIE_NAME):
+        response.set_cookie(CSRF_COOKIE_NAME, secrets.token_urlsafe(32), secure=config.web.secure_cookies,
+                            samesite="strict", path="/")
+    return response
 
 def render_auth_page(page_name: str, admin_only: bool = False):
     async def _handler(request: Request):
@@ -597,84 +294,9 @@ async def page_admin_users(request: Request):
 # REST API: АВТОРИЗАЦИЯ И ПОЛЬЗОВАТЕЛИ
 # ==============================================================================
 
-@app.post("/api/auth/login")
-async def api_auth_login(req: LoginRequest, response: Response):
-    user = await db.authenticate_user(req.username, req.password)
-    if not user:
-        raise HTTPException(status_code=401, detail="Неверное имя пользователя или пароль")
-    token = await db.create_session(user.id, days_valid=14)
-    response.set_cookie(
-        key=SESSION_COOKIE_NAME,
-        value=token,
-        max_age=14 * 86400,
-        httponly=True,
-        samesite="lax",
-        path="/"
-    )
-    logger.info(f"🔑 Успешный вход пользователя '{user.username}' (роль: {user.role.value})")
-    return {
-        "status": "success",
-        "user": user.model_dump(mode="json"),
-        "token": token
-    }
+from routers.auth import router as auth_router
+app.include_router(auth_router)
 
-@app.post("/api/auth/logout")
-async def api_auth_logout(request: Request, response: Response):
-    token = request.cookies.get(SESSION_COOKIE_NAME)
-    if token:
-        await db.delete_session(token)
-    response.delete_cookie(key=SESSION_COOKIE_NAME, path="/")
-    return {"status": "success"}
-
-@app.get("/api/auth/me")
-async def api_auth_me(user: User = Depends(require_auth)):
-    return {"user": user.model_dump(mode="json")}
-
-@app.post("/api/auth/change-password")
-async def api_auth_change_password(req: ChangePasswordRequest, user: User = Depends(require_auth)):
-    ok, msg = await db.change_password(user.id, req.old_password, req.new_password)
-    if not ok:
-        raise HTTPException(status_code=400, detail=msg)
-    return {"status": "success", "message": msg}
-
-# ==============================================================================
-# REST API: АДМИНИСТРИРОВАНИЕ ПОЛЬЗОВАТЕЛЕЙ
-# ==============================================================================
-
-@app.get("/api/admin/users")
-async def api_admin_list_users(admin: User = Depends(require_admin)):
-    users = await db.get_all_users()
-    return {"users": [u.model_dump(mode="json") for u in users]}
-
-@app.post("/api/admin/users")
-async def api_admin_create_user(req: UserCreate, admin: User = Depends(require_admin)):
-    ok, msg, user_id = await db.create_user(req.username, req.password, req.role)
-    if not ok:
-        raise HTTPException(status_code=400, detail=msg)
-    logger.info(f"👤 Админ '{admin.username}' создал пользователя '{req.username}' (роль: {req.role.value})")
-    return {"status": "success", "message": msg, "user_id": user_id}
-
-@app.put("/api/admin/users/{user_id}")
-async def api_admin_update_user(user_id: int, req: UserUpdate, admin: User = Depends(require_admin)):
-    ok, msg = await db.update_user(
-        user_id=user_id,
-        username=req.username,
-        role=req.role,
-        is_active=req.is_active,
-        new_password=req.password
-    )
-    if not ok:
-        raise HTTPException(status_code=400, detail=msg)
-    logger.info(f"👤 Админ '{admin.username}' обновил пользователя ID {user_id}")
-    return {"status": "success", "message": msg}
-
-@app.delete("/api/admin/users/{user_id}")
-async def api_admin_delete_user(user_id: int, admin: User = Depends(require_admin)):
-    ok, msg = await db.delete_user(user_id)
-    if not ok:
-        raise HTTPException(status_code=400, detail=msg)
-    logger.info(f"👤 Админ '{admin.username}' удалил пользователя ID {user_id}")
-    return {"status": "success", "message": msg}
 # REST API: СТАТИСТИКА И ДАШБОРД
 # ==============================================================================
 
@@ -951,7 +573,7 @@ async def api_export_items(
     max_price: Optional[int] = None,
     with_discount_only: bool = False
 ):
-    items, _ = await db.get_items_filtered(
+    items, total = await db.get_items_filtered(
         search_query_id=search_query_id,
         query=query,
         min_price=min_price,
@@ -960,20 +582,23 @@ async def api_export_items(
         limit=10000
     )
 
+    if total > 10000:
+        raise HTTPException(status_code=413, detail="Экспорт ограничен 10 000 объявлений. Уточните фильтры.")
+
     if not items:
         raise HTTPException(status_code=400, detail="Нет данных для экспорта по заданным фильтрам")
 
     if fmt in ("excel", "xlsx"):
-        path = exporter.export_to_excel(items)
+        path = await asyncio.to_thread(exporter.export_to_excel, items)
         media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     elif fmt == "csv":
-        path = exporter.export_to_csv(items)
+        path = await asyncio.to_thread(exporter.export_to_csv, items)
         media_type = "text/csv"
     elif fmt == "json":
-        path = exporter.export_to_json(items)
+        path = await asyncio.to_thread(exporter.export_to_json, items)
         media_type = "application/json"
     elif fmt in ("html", "htm"):
-        path = exporter.export_to_html(items)
+        path = await asyncio.to_thread(exporter.export_to_html, items)
         media_type = "text/html"
     else:
         raise HTTPException(status_code=400, detail=f"Неподдерживаемый формат '{fmt}'. Доступны: excel, csv, json, html")
@@ -1187,6 +812,11 @@ async def api_start_parse_search(req: ParseSearchRequest):
 
 @app.websocket("/ws/parser/{job_id}")
 async def ws_parser(websocket: WebSocket, job_id: str):
+    origin = websocket.headers.get("origin")
+    expected = str(websocket.url).replace("ws://", "http://", 1).replace("wss://", "https://", 1)
+    if origin and not same_origin(origin, expected):
+        await websocket.close(code=1008)
+        return
     token = websocket.cookies.get(SESSION_COOKIE_NAME)
     if not token or not await db.get_user_by_session(token):
         await websocket.close(code=1008)
@@ -1204,8 +834,16 @@ async def ws_parser(websocket: WebSocket, job_id: str):
     try:
         while True:
             # Слушаем сообщения (например ping/pong)
-            msg = await websocket.receive_text()
+            if not await db.get_user_by_session(token):
+                await websocket.close(code=1008)
+                break
+            try:
+                await asyncio.wait_for(websocket.receive_text(), timeout=5)
+            except asyncio.TimeoutError:
+                continue
     except WebSocketDisconnect:
+        pass
+    finally:
         if job_id in job_manager.subscribers and websocket in job_manager.subscribers[job_id]:
             job_manager.subscribers[job_id].remove(websocket)
 
@@ -1238,406 +876,8 @@ async def api_parse_item(req: ParseItemRequest):
 # REST API: МЕНЕДЖЕР ПРОКСИ
 # ==============================================================================
 
-@app.get("/api/proxies")
-async def api_get_proxies():
-    proxies = proxy_manager.proxies
-    return {
-        "enabled": config.proxy.enabled,
-        "total_count": len(proxies),
-        "proxies": proxies,
-        "default_proxy": config.proxy.default_proxy,
-        "proxies_file": str(proxy_manager.proxies_file)
-    }
-
-class AddProxyRequest(BaseModel):
-    proxy_text: str  # может быть 1 прокси или список через перенос строки
-
-@app.post("/api/proxies")
-async def api_add_proxies(req: AddProxyRequest):
-    added = 0
-    lines = req.proxy_text.strip().splitlines()
-    for line in lines:
-        line = line.strip()
-        if line and not line.startswith("#"):
-            if proxy_manager.add_proxy(line):
-                added += 1
-    logger.info(f"🌐 Добавлено {added} новых прокси в пул")
-    return {"status": "success", "added_count": added, "total": len(proxy_manager.proxies)}
-
-class DeleteProxyRequest(BaseModel):
-    proxy: str
-
-@app.delete("/api/proxies")
-async def api_delete_proxy(req: DeleteProxyRequest):
-    if req.proxy in proxy_manager.proxies:
-        proxy_manager.proxies.remove(req.proxy)
-        # Перезаписываем файл
-        if proxy_manager.proxies_file.exists():
-            with open(proxy_manager.proxies_file, "w", encoding="utf-8") as f:
-                for p in proxy_manager.proxies:
-                    f.write(f"{p}\n")
-        logger.info(f"Удален прокси {req.proxy}")
-        return {"status": "success"}
-    raise HTTPException(status_code=404, detail="Прокси не найден")
-
-@app.post("/api/proxies/check-all")
-async def api_check_all_proxies():
-    results = []
-    
-    async def check_one(p: str):
-        start_t = time.time()
-        ok = await proxy_manager.check_proxy(p, timeout_sec=6)
-        latency = round((time.time() - start_t) * 1000)
-        return {
-            "proxy": p,
-            "alive": ok,
-            "latency_ms": latency if ok else None
-        }
-
-    tasks = [check_one(p) for p in proxy_manager.proxies]
-    if tasks:
-        results = await asyncio.gather(*tasks)
-
-    alive_count = sum(1 for r in results if r["alive"])
-    return {
-        "total": len(results),
-        "alive_count": alive_count,
-        "dead_count": len(results) - alive_count,
-        "results": results
-    }
-
-
-# ==============================================================================
-# REST API: НАСТРОЙКИ И ТЕЛЕГРАМ
-# ==============================================================================
-
-@app.get("/api/settings")
-async def api_get_settings():
-    return {
-        "scraper": {
-            "headless": config.scraper.headless,
-            "timeout_ms": config.scraper.timeout_ms,
-            "page_delay_min": config.scraper.page_delay_min,
-            "page_delay_max": config.scraper.page_delay_max,
-            "max_pages": config.scraper.max_pages,
-            "user_agent": config.scraper.user_agent,
-            "save_cookies": config.scraper.save_cookies,
-            "cookies_exist": config.scraper.cookies_file.exists()
-        },
-        "proxy": {
-            "enabled": config.proxy.enabled,
-            "default_proxy": config.proxy.default_proxy or "",
-            "rotate": config.proxy.rotate,
-            "count": len(proxy_manager.proxies)
-        },
-        "telegram": {
-            "bot_token": config.telegram.bot_token,
-            "admin_chat_ids": config.telegram.admin_chat_ids,
-            "notification_interval_min": config.telegram.notification_interval_min,
-            "send_photos": config.telegram.send_photos
-        },
-        "web": {
-            "host": config.web.host,
-            "port": config.web.port,
-            "auto_open_browser": config.web.auto_open_browser
-        }
-    }
-
-class SaveSettingsRequest(BaseModel):
-    headless: bool
-    timeout_ms: int
-    page_delay_min: float
-    page_delay_max: float
-    proxy_enabled: bool
-    default_proxy: Optional[str] = None
-    bot_token: Optional[str] = None
-    admin_chat_ids: List[int] = Field(default_factory=list)
-    notification_interval_min: int = Field(default=10, gt=0)
-    send_photos: bool = True
-
-    @model_validator(mode="after")
-    def validate_scraper(self):
-        ScraperConfig(timeout_ms=self.timeout_ms, page_delay_min=self.page_delay_min,
-                      page_delay_max=self.page_delay_max)
-        return self
-
-@app.post("/api/settings")
-async def api_save_settings(req: SaveSettingsRequest):
-    # Complete fallible work before publishing settings to running services.
-    candidate = config.model_copy(deep=True)
-    candidate.scraper.headless = req.headless
-    candidate.scraper.timeout_ms = req.timeout_ms
-    candidate.scraper.page_delay_min = req.page_delay_min
-    candidate.scraper.page_delay_max = req.page_delay_max
-    
-    candidate.proxy.enabled = req.proxy_enabled
-    candidate.proxy.default_proxy = (req.default_proxy or "").strip() or None
-    
-    candidate.telegram.bot_token = req.bot_token or ""
-    candidate.telegram.admin_chat_ids = req.admin_chat_ids
-    candidate.telegram.notification_interval_min = req.notification_interval_min
-    candidate.telegram.send_photos = req.send_photos
-
-    try:
-        staged_proxies = ProxyManager(proxies_file=candidate.proxy.proxies_file,
-                                      default_proxy=candidate.proxy.default_proxy or "")
-        candidate.save_to_env()
-    except OSError:
-        raise HTTPException(status_code=500, detail="Не удалось сохранить настройки. Проверьте доступ к файлам конфигурации.") from None
-
-    config.scraper = candidate.scraper
-    config.proxy = candidate.proxy
-    config.telegram = candidate.telegram
-    proxy_manager.default_proxy = candidate.proxy.default_proxy
-    proxy_manager.proxies = staged_proxies.proxies
-    proxy_manager._current_index = 0
-    active_proxy = proxy_manager.get_proxy() if config.proxy.enabled else None
-    browser_engine.headless = config.scraper.headless
-    browser_engine.proxy_str = active_proxy
-    http_engine.proxy = active_proxy
-    logger.info("⚙️ Настройки успешно обновлены и сохранены в .env")
-    return {"status": "success", "message": "Настройки сохранены"}
-
-class TestTelegramRequest(BaseModel):
-    bot_token: Optional[str] = None
-    chat_id: int
-
-@app.post("/api/telegram/test")
-async def api_test_telegram(req: TestTelegramRequest):
-    token = req.bot_token or config.telegram.bot_token
-    if not token:
-        raise HTTPException(status_code=400, detail="Токен Telegram бота не указан")
-
-    text = (
-        "🤖 <b>Тестовое уведомление Avito Parser Pro</b>\n\n"
-        "✅ Подключение к веб-панели работает отлично!\n"
-        f"📅 Время проверки: {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}"
-    )
-
-    url = f"https://api.telegram.org/bot{token}/sendMessage"
-    payload = {
-        "chat_id": req.chat_id,
-        "text": text,
-        "parse_mode": "HTML"
-    }
-
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.post(url, data=payload)
-            data = resp.json()
-            if data.get("ok"):
-                return {"status": "success", "message": "Тестовое сообщение успешно отправлено!"}
-            else:
-                desc = data.get("description", "Неизвестная ошибка Telegram API")
-                raise HTTPException(status_code=400, detail=f"Ошибка Telegram: {desc}")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Не удалось связаться с Telegram: {e}")
-
-@app.post("/api/settings/clear-cookies")
-async def api_clear_cookies():
-    if config.scraper.cookies_file.exists():
-        config.scraper.cookies_file.unlink()
-        logger.info("🍪 Файл cookies.json успешно очищен")
-        return {"status": "success", "message": "Куки очищены"}
-    return {"status": "info", "message": "Файл кук не был создан"}
-
-# ==============================================================================
-# REST API: НАСТРОЙКИ AI И LLM ЭКСПЕРТИЗЫ
-# ==============================================================================
-
-class SaveAISettingsRequest(BaseModel):
-    enabled: bool = False
-    provider: str = "deepseek"
-    api_key: str = ""
-    model: str = "deepseek-chat"
-    api_base: str = "https://api.deepseek.com"
-    prompt_template: Optional[str] = None
-
-class TestAIRequest(BaseModel):
-    provider: str = "deepseek"
-    api_key: str = ""
-    model: str = "deepseek-chat"
-    api_base: str = "https://api.deepseek.com"
-
-@app.get("/api/ai/settings")
-async def api_get_ai_settings():
-    settings = await db.get_ai_settings()
-    return {"settings": settings.model_dump(mode="json")}
-
-@app.post("/api/ai/settings")
-async def api_save_ai_settings(req: SaveAISettingsRequest):
-    settings = AISettings(
-        enabled=req.enabled,
-        provider=req.provider,
-        api_key=req.api_key.strip(),
-        model=req.model.strip(),
-        api_base=req.api_base.strip(),
-        prompt_template=req.prompt_template
-    )
-    saved = await db.save_ai_settings(settings)
-    logger.info(f"🧠 Настройки AI обновлены: провайдер={saved.provider}, модель={saved.model}, enabled={saved.enabled}")
-    return {"status": "success", "settings": saved.model_dump(mode="json"), "message": "Настройки AI успешно сохранены"}
-
-@app.post("/api/ai/test")
-async def api_test_ai_connection(req: TestAIRequest):
-    provider = (req.provider or "deepseek").lower()
-    api_key = req.api_key.strip()
-    model = req.model.strip() or "deepseek-chat"
-    api_base = req.api_base.strip().rstrip("/")
-
-    if not api_base:
-        if provider == "deepseek":
-            api_base = "https://api.deepseek.com"
-        elif provider == "openai":
-            api_base = "https://api.openai.com/v1"
-        elif provider == "openrouter":
-            api_base = "https://openrouter.ai/api/v1"
-        elif provider == "ollama":
-            api_base = "http://localhost:11434/v1"
-        else:
-            api_base = "https://api.deepseek.com"
-
-    headers = {"Content-Type": "application/json"}
-    if api_key:
-        headers["Authorization"] = f"Bearer {api_key}"
-
-    payload = {
-        "model": model,
-        "messages": [
-            {"role": "system", "content": "Ты тестовый помощник. Ответь одним кратким предложением 'Подключение к AI успешно установлено!'."},
-            {"role": "user", "content": "Тест подключения"}
-        ],
-        "max_tokens": 50,
-        "temperature": 0.1
-    }
-
-    url = f"{api_base}/chat/completions"
-
-    try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.post(url, headers=headers, json=payload)
-            if resp.status_code == 200:
-                data = resp.json()
-                reply = data.get("choices", [{}])[0].get("message", {}).get("content", "OK")
-                return {
-                    "status": "success",
-                    "message": "Соединение с AI успешно установлено!",
-                    "provider": provider,
-                    "model": model,
-                    "response": reply
-                }
-            else:
-                error_msg = f"HTTP {resp.status_code}: {resp.text[:200]}"
-                raise HTTPException(status_code=400, detail=f"Ошибка AI-провайдера: {error_msg}")
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Не удалось подключиться к {url}: {e}")
-
-
-# ==============================================================================
-# REST API: ПОЛЬЗОВАТЕЛЬСКИЕ ПРАВИЛА СКОРИНГА
-# ==============================================================================
-
-class CustomRuleCreateRequest(BaseModel):
-    pattern: str
-    label: str
-    score_delta: int = -25
-
-@app.get("/api/scoring/rules")
-async def api_get_scoring_rules(active_only: bool = False):
-    rules = await db.get_custom_scoring_rules(active_only=active_only)
-    return {"rules": rules}
-
-@app.post("/api/scoring/rules")
-async def api_add_scoring_rule(req: CustomRuleCreateRequest):
-    if not req.pattern.strip():
-        raise HTTPException(status_code=400, detail="Паттерн не может быть пустым")
-    if not req.label.strip():
-        raise HTTPException(status_code=400, detail="Описание правила не может быть пустым")
-    rule_id = await db.add_custom_scoring_rule(req.pattern, req.label, req.score_delta)
-    logger.info(f"📐 Добавлено правило скоринга #{rule_id}: '{req.label}' ({req.score_delta:+d} баллов)")
-    return {"status": "success", "id": rule_id}
-
-@app.delete("/api/scoring/rules/{rule_id}")
-async def api_delete_scoring_rule(rule_id: int):
-    ok = await db.delete_custom_scoring_rule(rule_id)
-    if not ok:
-        raise HTTPException(status_code=404, detail="Правило не найдено")
-    logger.info(f"🗑 Удалено правило скоринга #{rule_id}")
-    return {"status": "success"}
-
-@app.patch("/api/scoring/rules/{rule_id}/toggle")
-async def api_toggle_scoring_rule(rule_id: int):
-    ok = await db.toggle_custom_scoring_rule(rule_id)
-    if not ok:
-        raise HTTPException(status_code=404, detail="Правило не найдено")
-    return {"status": "success"}
-
-
-# ==============================================================================
-# REST API: НАСТРОЙКИ WEBHOOK
-# ==============================================================================
-
-class SaveWebhookSettingsRequest(BaseModel):
-    url: str = ""
-    enabled: bool = False
-    send_new: bool = True
-    send_drops: bool = True
-    min_deal_score: int = 0
-    secret: str = ""
-
-@app.get("/api/webhook/settings")
-async def api_get_webhook_settings():
-    settings = await db.get_webhook_settings()
-    return {"settings": settings.model_dump(mode="json")}
-
-@app.post("/api/webhook/settings")
-async def api_save_webhook_settings(req: SaveWebhookSettingsRequest):
-    from models import WebhookSettings
-    settings = WebhookSettings(
-        url=req.url.strip(),
-        enabled=req.enabled,
-        send_new=req.send_new,
-        send_drops=req.send_drops,
-        min_deal_score=req.min_deal_score,
-        secret=req.secret.strip()
-    )
-    saved = await db.save_webhook_settings(settings)
-    logger.info(f"🔗 Настройки Webhook сохранены: URL={saved.url}, enabled={saved.enabled}")
-    return {"status": "success", "settings": saved.model_dump(mode="json"), "message": "Настройки Webhook успешно сохранены"}
-
-@app.post("/api/webhook/test")
-async def api_test_webhook():
-    settings = await db.get_webhook_settings()
-    if not settings.url:
-        raise HTTPException(status_code=400, detail="Webhook URL не указан")
-
-    test_payload = {
-        "event": "test",
-        "message": "Тестовое уведомление от Avito Parser Pro",
-        "timestamp": datetime.now().isoformat()
-    }
-    headers = {"Content-Type": "application/json"}
-    body_bytes = json.dumps(test_payload, ensure_ascii=False).encode("utf-8")
-    if settings.secret:
-        sig = hmac.new(settings.secret.encode("utf-8"), body_bytes, hashlib.sha256).hexdigest()
-        headers["X-Webhook-Signature"] = sig
-
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.post(settings.url, content=body_bytes, headers=headers)
-            return {
-                "status": "success",
-                "status_code": resp.status_code,
-                "response": resp.text[:200]
-            }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Не удалось отправить тестовый Webhook: {e}")
-
-# ==============================================================================
-# REST API: ЛОГИ
-# ==============================================================================
+from routers.settings import router as settings_router, SaveSettingsRequest
+app.include_router(settings_router)
 
 @app.get("/api/logs")
 async def api_get_logs():

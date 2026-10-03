@@ -1,6 +1,9 @@
 import hashlib
 import json
 import secrets
+import os
+import sqlite3
+from contextlib import asynccontextmanager, closing
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -16,10 +19,34 @@ class Database:
     def __init__(self, db_path: Optional[Path] = None):
         self.db_path = db_path or config.db_path
 
+    @asynccontextmanager
+    async def connection(self):
+        async with aiosqlite.connect(self.db_path, timeout=30) as connection:
+            await connection.execute("PRAGMA foreign_keys=ON")
+            await connection.execute("PRAGMA busy_timeout=30000")
+            try:
+                yield connection
+            except BaseException:
+                await connection.rollback()
+                raise
+
+    async def backup(self, destination: Path) -> Path:
+        destination = Path(destination)
+        if destination.resolve() == self.db_path.resolve():
+            raise ValueError("Backup cannot overwrite the active database")
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        async with self.connection() as source:
+            with closing(sqlite3.connect(destination)) as target:
+                await source.backup(target)
+                if target.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+                    raise ValueError("Backup integrity check failed")
+        return destination
+
     async def init_db(self) -> None:
         """Инициализация таблиц базы данных SQLite"""
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self.connection() as db:
+            await db.execute("PRAGMA journal_mode=WAL")
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS items (
                     id TEXT PRIMARY KEY,
@@ -255,6 +282,17 @@ class Database:
             await db.execute("CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_logs(created_at)")
             await db.execute("CREATE INDEX IF NOT EXISTS idx_items_content_hash ON items(content_hash)")
 
+            await db.execute("CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)")
+            cursor = await db.execute("SELECT COALESCE(MAX(version), 0) FROM schema_migrations")
+            if (await cursor.fetchone())[0] > 3:
+                raise RuntimeError("Database schema is newer than this application")
+            await db.execute("CREATE TABLE IF NOT EXISTS item_searches (item_id TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE, search_id INTEGER NOT NULL REFERENCES searches(id) ON DELETE CASCADE, last_seen_at TEXT NOT NULL, PRIMARY KEY(item_id, search_id))")
+            await db.execute("INSERT OR IGNORE INTO item_searches SELECT id, search_query_id, updated_at FROM items WHERE search_query_id IN (SELECT id FROM searches)")
+            await db.execute("CREATE TABLE IF NOT EXISTS work_leases (name TEXT PRIMARY KEY, owner TEXT NOT NULL, expires_at REAL NOT NULL)")
+            await db.execute("CREATE TABLE IF NOT EXISTS notification_outbox (id INTEGER PRIMARY KEY AUTOINCREMENT, event_key TEXT UNIQUE NOT NULL, channel TEXT NOT NULL, destination TEXT NOT NULL, payload TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', attempts INTEGER NOT NULL DEFAULT 0, available_at REAL NOT NULL DEFAULT 0, lease_until REAL NOT NULL DEFAULT 0, lease_token TEXT, last_error TEXT)")
+            await db.execute("CREATE INDEX IF NOT EXISTS idx_outbox_pending ON notification_outbox(status, available_at)")
+            for version in (1, 2, 3):
+                await db.execute("INSERT OR IGNORE INTO schema_migrations VALUES (?, ?)", (version, datetime.now().isoformat()))
             await db.commit()
 
         # Инициализация дефолтного админа при первом старте
@@ -269,8 +307,9 @@ class Database:
         is_price_drop = False
         prev_price = None
 
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self.connection() as db:
             db.row_factory = aiosqlite.Row
+            await db.execute("BEGIN IMMEDIATE")
             cursor = await db.execute("SELECT id, price, old_price, ai_summary FROM items WHERE id = ?", (item.id,))
             row = await cursor.fetchone()
 
@@ -370,6 +409,23 @@ class Database:
                     detected_flaws_json, 1 if item.is_hot_deal else 0,
                     1 if item.is_reserved else 0, 1 if item.is_closed else 0, content_hash, now, item.id
                 ))
+            if item.search_query_id is not None:
+                await db.execute("INSERT INTO item_searches VALUES (?, ?, ?) ON CONFLICT(item_id, search_id) DO UPDATE SET last_seen_at=excluded.last_seen_at", (item.id, item.search_query_id, now.isoformat()))
+            if is_new or is_price_drop:
+                search_name = "Поиск"
+                if item.search_query_id is not None:
+                    search_row = await (await db.execute("SELECT name FROM searches WHERE id=?", (item.search_query_id,))).fetchone()
+                    if search_row:
+                        search_name = search_row[0]
+                event_type = "new" if is_new else "price_drop"
+                payload = json.dumps({"item": item.model_dump(mode="json"), "search_name": search_name, "type": event_type}, ensure_ascii=False)
+                event = f"{item.id}:{item.search_query_id}:{event_type}:{now.isoformat()}"
+                if config.telegram.bot_token:
+                    for chat in set(config.telegram.admin_chat_ids):
+                        await db.execute("INSERT OR IGNORE INTO notification_outbox(event_key, channel, destination, payload) VALUES (?, 'telegram', ?, ?)", (f"{event}:telegram:{chat}", str(chat), payload))
+                webhook = await (await db.execute("SELECT url, enabled, send_new, send_drops FROM webhook_settings WHERE id=1")).fetchone()
+                if webhook and webhook[1] and webhook[0] and webhook[2 if is_new else 3]:
+                    await db.execute("INSERT OR IGNORE INTO notification_outbox(event_key, channel, destination, payload) VALUES (?, 'webhook', ?, ?)", (f"{event}:webhook", webhook[0], payload))
             await db.commit()
         return item, is_new, is_price_drop, prev_price
 
@@ -411,7 +467,7 @@ class Database:
         if not active_item_ids:
             return 0
         
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self.connection() as db:
             placeholders = ",".join(["?"] * len(active_item_ids))
             now = datetime.now()
             sql = f"""
@@ -505,7 +561,7 @@ class Database:
                 where_clauses.append("search_query_id IS NULL")
             else:
                 try:
-                    where_clauses.append("search_query_id = ?")
+                    where_clauses.append("EXISTS (SELECT 1 FROM item_searches membership WHERE membership.item_id=items.id AND membership.search_id=?)")
                     params.append(int(search_query_id))
                 except (ValueError, TypeError):
                     pass
@@ -548,7 +604,7 @@ class Database:
 
         count_sql = f"SELECT COUNT(*) FROM items WHERE {where_sql}"
         select_sql = f"SELECT * FROM items WHERE {where_sql} ORDER BY {order_by_sql} LIMIT ? OFFSET ?"
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self.connection() as db:
             db.row_factory = aiosqlite.Row
 
             # Подсчет общего количества
@@ -569,7 +625,7 @@ class Database:
 
     async def get_item_by_id(self, item_id: str) -> Optional[AvitoItem]:
         """Поиск объявления по ID"""
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self.connection() as db:
             db.row_factory = aiosqlite.Row
             cursor = await db.execute("SELECT * FROM items WHERE id = ?", (item_id,))
             row = await cursor.fetchone()
@@ -579,7 +635,7 @@ class Database:
 
     async def delete_item(self, item_id: str) -> bool:
         """Удаление одного объявления"""
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self.connection() as db:
             await db.execute("DELETE FROM price_history WHERE item_id = ?", (item_id,))
             await db.execute("DELETE FROM sent_notifications WHERE item_id = ?", (item_id,))
             cursor = await db.execute("DELETE FROM items WHERE id = ?", (item_id,))
@@ -590,7 +646,7 @@ class Database:
         """Пакетное удаление объявлений"""
         if not item_ids:
             return 0
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self.connection() as db:
             placeholders = ",".join("?" for _ in item_ids)
             await db.execute(f"DELETE FROM price_history WHERE item_id IN ({placeholders})", item_ids)
             await db.execute(f"DELETE FROM sent_notifications WHERE item_id IN ({placeholders})", item_ids)
@@ -600,7 +656,7 @@ class Database:
 
     async def clear_items(self) -> int:
         """Полная очистка всех собранных объявлений"""
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self.connection() as db:
             await db.execute("DELETE FROM price_history")
             await db.execute("DELETE FROM sent_notifications")
             cursor = await db.execute("DELETE FROM items")
@@ -610,7 +666,7 @@ class Database:
     # Методы работы с поисковыми запросами (мониторингом)
     async def add_search(self, search: SearchQuery) -> int:
         """Добавление нового поискового запроса для мониторинга"""
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self.connection() as db:
             cursor = await db.execute("""
                 INSERT INTO searches (name, url, min_price, max_price, check_interval_min, enabled, active_hours_start, active_hours_end, created_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -626,7 +682,7 @@ class Database:
         """Обновление параметров поискового запроса"""
         if not search.id:
             return False
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self.connection() as db:
             cursor = await db.execute("""
                 UPDATE searches SET
                     name = ?,
@@ -648,7 +704,7 @@ class Database:
 
     async def toggle_search_enabled(self, search_id: int, enabled: Optional[bool] = None) -> bool:
         """Включение/выключение задачи мониторинга"""
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self.connection() as db:
             if enabled is None:
                 cursor = await db.execute("UPDATE searches SET enabled = CASE WHEN enabled = 1 THEN 0 ELSE 1 END WHERE id = ?", (search_id,))
             else:
@@ -664,7 +720,7 @@ class Database:
             query += " WHERE enabled = 1"
         query += " ORDER BY id ASC"
 
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self.connection() as db:
             db.row_factory = aiosqlite.Row
             cursor = await db.execute(query)
             rows = await cursor.fetchall()
@@ -688,7 +744,7 @@ class Database:
     async def get_searches_with_counts(self) -> List[Dict[str, Any]]:
         """Получение списка запросов с количеством собранных товаров"""
         result: List[Dict[str, Any]] = []
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self.connection() as db:
             db.row_factory = aiosqlite.Row
             cursor = await db.execute("""
                 SELECT s.*, COUNT(i.id) AS items_count
@@ -718,7 +774,7 @@ class Database:
 
     async def get_search_by_id(self, search_id: int) -> Optional[SearchQuery]:
         """Получение запроса по ID"""
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self.connection() as db:
             db.row_factory = aiosqlite.Row
             cursor = await db.execute("SELECT * FROM searches WHERE id = ?", (search_id,))
             row = await cursor.fetchone()
@@ -740,14 +796,14 @@ class Database:
 
     async def delete_search(self, search_id: int) -> bool:
         """Удаление поискового запроса"""
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self.connection() as db:
             cursor = await db.execute("DELETE FROM searches WHERE id = ?", (search_id,))
             await db.commit()
             return cursor.rowcount > 0
 
     async def update_search_last_checked(self, search_id: int) -> None:
         """Обновление метки последней проверки"""
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self.connection() as db:
             await db.execute("UPDATE searches SET last_checked_at = ? WHERE id = ?", (datetime.now(), search_id))
             await db.commit()
 
@@ -763,7 +819,7 @@ class Database:
         query += " ORDER BY created_at DESC LIMIT ?"
         params.append(limit)
 
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self.connection() as db:
             db.row_factory = aiosqlite.Row
             cursor = await db.execute(query, params)
             rows = await cursor.fetchall()
@@ -793,7 +849,7 @@ class Database:
             ORDER BY ph.created_at DESC
             LIMIT ?
         """
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self.connection() as db:
             db.row_factory = aiosqlite.Row
             cursor = await db.execute(query, (limit,))
             rows = await cursor.fetchall()
@@ -818,7 +874,7 @@ class Database:
     # Методы работы с историей уведомлений
     async def is_notification_sent(self, item_id: str, search_query_id: Optional[int], notif_type: str) -> bool:
         """Проверка, было ли уже отправлено уведомление данного типа"""
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self.connection() as db:
             cursor = await db.execute("""
                 SELECT 1 FROM sent_notifications
                 WHERE item_id = ? AND search_query_id IS ? AND notification_type = ?
@@ -827,7 +883,7 @@ class Database:
 
     async def mark_notification_sent(self, item_id: str, search_query_id: Optional[int], notif_type: str) -> None:
         """Фиксация отправленного уведомления в БД"""
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self.connection() as db:
             await db.execute("""
                 INSERT OR IGNORE INTO sent_notifications (item_id, search_query_id, notification_type, sent_at)
                 VALUES (?, ?, ?, ?)
@@ -836,7 +892,7 @@ class Database:
 
     async def get_stats(self) -> Dict[str, Any]:
         """Статистика базы данных"""
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self.connection() as db:
             items_res = await (await db.execute("SELECT COUNT(*) FROM items WHERE (is_hidden = 0 OR is_hidden IS NULL) AND (is_closed = 0 OR is_closed IS NULL) AND (is_reserved = 0 OR is_reserved IS NULL)")).fetchone()
             searches_res = await (await db.execute("SELECT COUNT(*) FROM searches")).fetchone()
             active_searches_res = await (await db.execute("SELECT COUNT(*) FROM searches WHERE enabled = 1")).fetchone()
@@ -873,7 +929,7 @@ class Database:
         # Распределение по ценовым диапазонам для графика
         # Распределение по ценовым диапазонам для графика (только доступные товары)
         active_filter = "(is_hidden = 0 OR is_hidden IS NULL) AND (is_closed = 0 OR is_closed IS NULL) AND (is_reserved = 0 OR is_reserved IS NULL)"
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self.connection() as db:
             tier1 = await (await db.execute(f"SELECT COUNT(*) FROM items WHERE price < 10000 AND {active_filter}")).fetchone()
             tier2 = await (await db.execute(f"SELECT COUNT(*) FROM items WHERE price >= 10000 AND price < 50000 AND {active_filter}")).fetchone()
             tier3 = await (await db.execute(f"SELECT COUNT(*) FROM items WHERE price >= 50000 AND price < 100000 AND {active_filter}")).fetchone()
@@ -991,21 +1047,36 @@ class Database:
         return secrets.compare_digest(check_key.hex(), hash_hex)
 
     async def init_default_admin(self) -> None:
-        """Создание супер-администратора по умолчанию при пустой таблице пользователей"""
-        async with aiosqlite.connect(self.db_path) as db:
+        """Bootstrap only from an explicitly configured secret."""
+        password = os.getenv("BOOTSTRAP_ADMIN_PASSWORD", "")
+        if not password:
+            return
+        async with self.connection() as db:
+            cursor = await db.execute("SELECT COUNT(*) FROM users")
+            if (await cursor.fetchone())[0]:
+                return
+        await self.bootstrap_admin(os.getenv("BOOTSTRAP_ADMIN_USERNAME", "admin"), password)
+
+    async def bootstrap_admin(self, username: str, password: str) -> None:
+        if len(username.strip()) < 3 or len(password) < 12:
+            raise ValueError("Имя должно содержать 3 символа, пароль — не менее 12")
+        async with self.connection() as db:
+            await db.execute("BEGIN IMMEDIATE")
             cursor = await db.execute("SELECT COUNT(*) FROM users")
             count_row = await cursor.fetchone()
             if count_row and count_row[0] == 0:
-                pwd_hash, salt = self.hash_password("admin123")
+                pwd_hash, salt = self.hash_password(password)
                 await db.execute("""
                     INSERT INTO users (username, password_hash, salt, role, is_active, created_at)
                     VALUES (?, ?, ?, ?, 1, ?)
-                """, ("admin", pwd_hash, salt, UserRole.ADMIN.value, datetime.now()))
+                """, (username.strip(), pwd_hash, salt, UserRole.ADMIN.value, datetime.now()))
                 await db.commit()
+            else:
+                raise ValueError("Первый администратор уже настроен")
 
     async def authenticate_user(self, username: str, password: str) -> Optional[User]:
         """Проверка логина и пароля пользователя"""
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self.connection() as db:
             db.row_factory = aiosqlite.Row
             cursor = await db.execute("SELECT * FROM users WHERE username = ? AND is_active = 1", (username.strip(),))
             row = await cursor.fetchone()
@@ -1033,10 +1104,10 @@ class Database:
         username = username.strip()
         if len(username) < 3:
             return False, "Имя пользователя должно содержать не менее 3 символов", None
-        if len(password) < 4:
-            return False, "Пароль должен содержать не менее 4 символов", None
+        if len(password) < 12:
+            return False, "Пароль должен содержать не менее 12 символов", None
 
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self.connection() as db:
             cursor = await db.execute("SELECT 1 FROM users WHERE username = ?", (username,))
             if await cursor.fetchone():
                 return False, f"Пользователь с именем '{username}' уже существует", None
@@ -1052,7 +1123,7 @@ class Database:
     async def get_all_users(self) -> List[User]:
         """Получение списка всех пользователей"""
         users: List[User] = []
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self.connection() as db:
             db.row_factory = aiosqlite.Row
             cursor = await db.execute("SELECT id, username, role, is_active, created_at, last_login_at FROM users ORDER BY id ASC")
             rows = await cursor.fetchall()
@@ -1069,7 +1140,7 @@ class Database:
 
     async def get_user_by_id(self, user_id: int) -> Optional[User]:
         """Поиск пользователя по ID"""
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self.connection() as db:
             db.row_factory = aiosqlite.Row
             cursor = await db.execute("SELECT id, username, role, is_active, created_at, last_login_at FROM users WHERE id = ?", (user_id,))
             r = await cursor.fetchone()
@@ -1093,7 +1164,7 @@ class Database:
         new_password: Optional[str] = None
     ) -> Tuple[bool, str]:
         """Обновление данных пользователя"""
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self.connection() as db:
             # Проверка существования
             cursor = await db.execute("SELECT * FROM users WHERE id = ?", (user_id,))
             user_row = await cursor.fetchone()
@@ -1132,8 +1203,8 @@ class Database:
                 params.append(1 if is_active else 0)
 
             if new_password is not None and new_password.strip():
-                if len(new_password.strip()) < 4:
-                    return False, "Новый пароль должен содержать минимум 4 символа"
+                if len(new_password.strip()) < 12:
+                    return False, "Новый пароль должен содержать минимум 12 символов"
                 pwd_hash, salt = self.hash_password(new_password.strip())
                 updates.append("password_hash = ?")
                 params.append(pwd_hash)
@@ -1146,12 +1217,14 @@ class Database:
             params.append(user_id)
             sql = f"UPDATE users SET {', '.join(updates)} WHERE id = ?"
             await db.execute(sql, params)
+            if new_password is not None or is_active is False or role is not None:
+                await db.execute("DELETE FROM user_sessions WHERE user_id = ?", (user_id,))
             await db.commit()
             return True, "Данные пользователя успешно обновлены"
 
     async def delete_user(self, user_id: int) -> Tuple[bool, str]:
         """Удаление пользователя с защитой последнего админа"""
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self.connection() as db:
             cursor = await db.execute("SELECT role FROM users WHERE id = ?", (user_id,))
             row = await cursor.fetchone()
             if not row:
@@ -1170,10 +1243,10 @@ class Database:
 
     async def change_password(self, user_id: int, old_password: str, new_password: str) -> Tuple[bool, str]:
         """Смена собственного пароля пользователем"""
-        if len(new_password) < 4:
-            return False, "Новый пароль должен быть не менее 4 символов"
+        if len(new_password) < 12:
+            return False, "Новый пароль должен быть не менее 12 символов"
 
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self.connection() as db:
             db.row_factory = aiosqlite.Row
             cursor = await db.execute("SELECT * FROM users WHERE id = ?", (user_id,))
             user_row = await cursor.fetchone()
@@ -1185,6 +1258,7 @@ class Database:
 
             pwd_hash, salt = self.hash_password(new_password)
             await db.execute("UPDATE users SET password_hash = ?, salt = ? WHERE id = ?", (pwd_hash, salt, user_id))
+            await db.execute("DELETE FROM user_sessions WHERE user_id = ?", (user_id,))
             await db.commit()
             return True, "Пароль успешно изменен"
 
@@ -1196,7 +1270,7 @@ class Database:
         """Создание защищенного токена сессии"""
         token = secrets.token_urlsafe(32)
         expires_at = datetime.now() + timedelta(days=days_valid)
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self.connection() as db:
             await db.execute("""
                 INSERT INTO user_sessions (token, user_id, expires_at, created_at)
                 VALUES (?, ?, ?, ?)
@@ -1208,7 +1282,7 @@ class Database:
         """Получение пользователя по токену сессии"""
         if not token:
             return None
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self.connection() as db:
             db.row_factory = aiosqlite.Row
             cursor = await db.execute("""
                 SELECT u.id, u.username, u.role, u.is_active, u.created_at, u.last_login_at
@@ -1232,7 +1306,7 @@ class Database:
         """Удаление сессии при выходе"""
         if not token:
             return
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self.connection() as db:
             await db.execute("DELETE FROM user_sessions WHERE token = ?", (token,))
             await db.commit()
 
@@ -1242,7 +1316,7 @@ class Database:
 
     async def get_chat_settings(self, chat_id: int) -> TelegramChatSettings:
         """Получение персональных настроек уведомлений для чата Telegram"""
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self.connection() as db:
             db.row_factory = aiosqlite.Row
             cursor = await db.execute("SELECT * FROM telegram_chat_settings WHERE chat_id = ?", (chat_id,))
             r = await cursor.fetchone()
@@ -1297,7 +1371,7 @@ class Database:
         new_only_below = only_below_market if only_below_market is not None else current.only_below_market
         new_below_pct = below_market_pct if below_market_pct is not None else current.below_market_pct
 
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self.connection() as db:
             await db.execute("""
                 INSERT INTO telegram_chat_settings (
                     chat_id, notify_new, notify_drops, send_photos, delivery_only,
@@ -1328,24 +1402,24 @@ class Database:
         if search_query_id is None:
             return None, None
 
-        where = "search_query_id = ? AND price IS NOT NULL AND price > 0 AND (is_hidden = 0 OR is_hidden IS NULL)"
+        where = "EXISTS (SELECT 1 FROM item_searches membership WHERE membership.item_id=items.id AND membership.search_id=?) AND price IS NOT NULL AND price > 0 AND COALESCE(is_hidden,0)=0 AND COALESCE(is_closed,0)=0"
         params = [search_query_id]
         
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self.connection() as db:
             cursor = await db.execute(f"SELECT COUNT(*), AVG(price) FROM items WHERE {where}", params)
             row = await cursor.fetchone()
             if not row or not row[0]:
                 return None, None
             count, avg_p = row[0], int(row[1]) if row[1] else None
             
-            cursor_med = await db.execute(f"SELECT price FROM items WHERE {where} ORDER BY price ASC LIMIT 1 OFFSET ?", params + [count // 2])
-            med_row = await cursor_med.fetchone()
-            med_p = med_row[0] if med_row else avg_p
+            cursor_med = await db.execute(f"SELECT price FROM items WHERE {where} ORDER BY price ASC LIMIT ? OFFSET ?", params + [2 if count % 2 == 0 else 1, (count - 1) // 2])
+            middle = await cursor_med.fetchall()
+            med_p = int(sum(row[0] for row in middle) / len(middle)) if middle else avg_p
             return med_p, avg_p
 
     async def get_ai_settings(self) -> AISettings:
         """Получение сохраненных настроек AI-провайдера"""
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self.connection() as db:
             db.row_factory = aiosqlite.Row
             cursor = await db.execute("SELECT * FROM ai_settings WHERE id = 1")
             r = await cursor.fetchone()
@@ -1370,7 +1444,7 @@ class Database:
     async def save_ai_settings(self, settings: AISettings) -> AISettings:
         """Сохранение настроек AI-провайдера"""
         now = datetime.now()
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self.connection() as db:
             await db.execute("""
                 INSERT INTO ai_settings (id, enabled, provider, api_key, model, api_base, prompt_template, updated_at)
                 VALUES (1, ?, ?, ?, ?, ?, ?, ?)
@@ -1396,7 +1470,7 @@ class Database:
 
     async def update_item_ai_summary(self, item_id: str, summary: str) -> bool:
         """Сохранение сгенерированного AI-резюме для товара"""
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self.connection() as db:
             cursor = await db.execute("UPDATE items SET ai_summary = ?, updated_at = ? WHERE id = ?", (summary, datetime.now(), item_id))
             await db.commit()
             return cursor.rowcount > 0
@@ -1404,7 +1478,7 @@ class Database:
     async def recalculate_all_deal_scores(self) -> int:
         """Фоновый пересчет скоринга и градации для всех товаров в базе"""
         items_to_update: List[AvitoItem] = []
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self.connection() as db:
             db.row_factory = aiosqlite.Row
             cursor = await db.execute("SELECT * FROM items")
             rows = await cursor.fetchall()
@@ -1416,7 +1490,7 @@ class Database:
 
         # Кэш рыночных цен по поискам
         stats_cache: Dict[Optional[int], Tuple[Optional[int], Optional[int]]] = {}
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self.connection() as db:
             for it in items_to_update:
                 sq_id = it.search_query_id
                 if sq_id not in stats_cache:
@@ -1454,7 +1528,7 @@ class Database:
     async def get_top_deal_items(self, limit: int = 6) -> List[AvitoItem]:
         """Получение топ-товаров по AI Score (только доступные Gems & Hot deals без брони)"""
         items: List[AvitoItem] = []
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self.connection() as db:
             db.row_factory = aiosqlite.Row
             cursor = await db.execute("""
                 SELECT * FROM items
@@ -1496,7 +1570,7 @@ class Database:
             if str(search_query_id) in ("-1", "unassigned", "null"):
                 where_clauses.append("search_query_id IS NULL")
             else:
-                where_clauses.append("search_query_id = ?")
+                where_clauses.append("EXISTS (SELECT 1 FROM item_searches membership WHERE membership.item_id=items.id AND membership.search_id=?)")
                 params.append(int(search_query_id))
 
         if query:
@@ -1506,7 +1580,7 @@ class Database:
 
         where_sql = " AND ".join(where_clauses)
 
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self.connection() as db:
             cursor = await db.execute(f"""
                 SELECT COUNT(*), MIN(price), MAX(price), AVG(price), SUM(price)
                 FROM items WHERE {where_sql}
@@ -1537,7 +1611,7 @@ class Database:
     async def compute_and_update_market_averages(self) -> int:
         """Расчет средней цены по поисковым группам и разметка выгодных предложений (Hot Deals)"""
         updated_count = 0
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self.connection() as db:
             # Группировка по search_query_id
             cursor = await db.execute("""
                 SELECT search_query_id, AVG(price) as avg_price
@@ -1567,7 +1641,7 @@ class Database:
     async def get_price_trend_history(self, days: int = 14) -> List[Dict[str, Any]]:
         """История средних цен и падений цен по дням для аналитического графика"""
         result: List[Dict[str, Any]] = []
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self.connection() as db:
             db.row_factory = aiosqlite.Row
             cursor = await db.execute("""
                 SELECT
@@ -1594,7 +1668,7 @@ class Database:
 
     async def toggle_item_favorite(self, item_id: str, is_favorite: Optional[bool] = None) -> bool:
         """Добавление/удаление товара в избранное"""
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self.connection() as db:
             if is_favorite is None:
                 await db.execute("UPDATE items SET is_favorite = CASE WHEN is_favorite = 1 THEN 0 ELSE 1 END WHERE id = ?", (item_id,))
             else:
@@ -1606,7 +1680,7 @@ class Database:
 
     async def toggle_item_hidden(self, item_id: str, is_hidden: Optional[bool] = None) -> bool:
         """Скрытие/восстановление товара из каталога"""
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self.connection() as db:
             if is_hidden is None:
                 await db.execute("UPDATE items SET is_hidden = CASE WHEN is_hidden = 1 THEN 0 ELSE 1 END WHERE id = ?", (item_id,))
             else:
@@ -1625,7 +1699,7 @@ class Database:
         """Массовые операции над выбранными товарами"""
         if not item_ids:
             return 0
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self.connection() as db:
             placeholders = ",".join("?" for _ in item_ids)
             if action == "delete":
                 await db.execute(f"DELETE FROM price_history WHERE item_id IN ({placeholders})", item_ids)
@@ -1639,6 +1713,7 @@ class Database:
                 cur = await db.execute(f"UPDATE items SET is_hidden = 1 WHERE id IN ({placeholders})", item_ids)
             elif action == "assign_search" and search_query_id is not None:
                 cur = await db.execute(f"UPDATE items SET search_query_id = ? WHERE id IN ({placeholders})", [search_query_id] + item_ids)
+                await db.executemany('INSERT OR IGNORE INTO item_searches (item_id,search_id,last_seen_at) SELECT id,?,? FROM items WHERE id=?', [(search_query_id, datetime.now().isoformat(), item_id) for item_id in item_ids])
             else:
                 return 0
             await db.commit()
@@ -1653,7 +1728,7 @@ class Database:
         seller_name = seller_name.strip()
         if not seller_name:
             return False
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self.connection() as db:
             await db.execute("""
                 INSERT INTO seller_blacklist (seller_name, reason, created_at)
                 VALUES (?, ?, ?)
@@ -1664,14 +1739,14 @@ class Database:
 
     async def remove_seller_from_blacklist(self, seller_name: str) -> bool:
         """Удаление продавца из черного списка"""
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self.connection() as db:
             cur = await db.execute("DELETE FROM seller_blacklist WHERE seller_name = ?", (seller_name.strip(),))
             await db.commit()
             return cur.rowcount > 0
 
     async def get_blacklisted_sellers(self) -> List[str]:
         """Список заблокированных продавцов"""
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self.connection() as db:
             cursor = await db.execute("SELECT seller_name FROM seller_blacklist")
             rows = await cursor.fetchall()
             return [r[0] for r in rows]
@@ -1690,7 +1765,7 @@ class Database:
     ) -> None:
         """Запись действия пользователя или системы в журнал безопасности"""
         try:
-            async with aiosqlite.connect(self.db_path) as db:
+            async with self.connection() as db:
                 await db.execute("""
                     INSERT INTO audit_logs (user_id, username, action, details, ip_address, created_at)
                     VALUES (?, ?, ?, ?, ?, ?)
@@ -1702,7 +1777,7 @@ class Database:
     async def get_audit_logs(self, limit: int = 100) -> List[AuditLogEntry]:
         """Получение последних записей журнала аудита"""
         logs: List[AuditLogEntry] = []
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self.connection() as db:
             db.row_factory = aiosqlite.Row
             cursor = await db.execute("""
                 SELECT id, user_id, username, action, details, ip_address, created_at
@@ -1755,7 +1830,7 @@ class Database:
         """Поиск возможного дубликата объявления по content_hash"""
         if not content_hash:
             return None
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self.connection() as db:
             db.row_factory = aiosqlite.Row
             cursor = await db.execute("""
                 SELECT * FROM items
@@ -1780,7 +1855,7 @@ class Database:
             query += " WHERE is_active = 1"
         query += " ORDER BY id ASC"
 
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self.connection() as db:
             db.row_factory = aiosqlite.Row
             cursor = await db.execute(query)
             rows = await cursor.fetchall()
@@ -1797,7 +1872,7 @@ class Database:
 
     async def add_custom_scoring_rule(self, pattern: str, label: str, score_delta: int) -> int:
         """Добавление нового правила скоринга (стоп-слова / бустера)"""
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self.connection() as db:
             cursor = await db.execute("""
                 INSERT INTO custom_scoring_rules (pattern, label, score_delta, is_active, created_at)
                 VALUES (?, ?, ?, 1, ?)
@@ -1812,7 +1887,7 @@ class Database:
 
     async def delete_custom_scoring_rule(self, rule_id: int) -> bool:
         """Удаление правила скоринга"""
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self.connection() as db:
             cursor = await db.execute("DELETE FROM custom_scoring_rules WHERE id = ?", (rule_id,))
             await db.commit()
             ok = cursor.rowcount > 0
@@ -1823,7 +1898,7 @@ class Database:
 
     async def toggle_custom_scoring_rule(self, rule_id: int) -> bool:
         """Включение/выключение правила скоринга"""
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self.connection() as db:
             cursor = await db.execute("""
                 UPDATE custom_scoring_rules SET is_active = CASE WHEN is_active = 1 THEN 0 ELSE 1 END WHERE id = ?
             """, (rule_id,))
@@ -1840,7 +1915,7 @@ class Database:
 
     async def get_webhook_settings(self) -> WebhookSettings:
         """Получение настроек Webhook"""
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self.connection() as db:
             db.row_factory = aiosqlite.Row
             cursor = await db.execute("SELECT * FROM webhook_settings WHERE id = 1")
             r = await cursor.fetchone()
@@ -1860,7 +1935,7 @@ class Database:
     async def save_webhook_settings(self, settings: WebhookSettings) -> WebhookSettings:
         """Сохранение настроек Webhook"""
         now = datetime.now()
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self.connection() as db:
             await db.execute("""
                 INSERT INTO webhook_settings (id, url, enabled, send_new, send_drops, min_deal_score, secret, updated_at)
                 VALUES (1, ?, ?, ?, ?, ?, ?, ?)
@@ -1890,7 +1965,7 @@ class Database:
 
     async def get_gem_lifetime_stats(self) -> Dict[str, Any]:
         """Расчет времени жизни (скорости выкупа) выгодных лотов GEM/HOT"""
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self.connection() as db:
             cursor = await db.execute("""
                 SELECT
                     created_at, closed_at, deal_grade,

@@ -10,6 +10,7 @@ from config import config
 from models import AvitoItem, ParseResult
 from parser_core import AvitoDataExtractor
 from proxy_manager import proxy_manager
+from parse_outcomes import extract_page, finalize
 
 console = Console()
 
@@ -70,6 +71,7 @@ class AvitoHttpEngine:
                         
                         if resp.status_code != 200:
                             if resp.status_code == 429 or resp.status_code == 403:
+                                result.outcome = "blocked"
                                 err_msg = f"HTTP {resp.status_code}: Доступ ограничен. Рекомендуется включить прокси или движок Playwright."
                             else:
                                 err_msg = f"HTTP статус {resp.status_code}"
@@ -78,9 +80,13 @@ class AvitoHttpEngine:
                             break
 
                         html = resp.text
-                        page_items = AvitoDataExtractor.extract_from_initial_data(html)
-                        if not page_items:
-                            page_items = AvitoDataExtractor.extract_from_dom(html)
+                        extracted = extract_page(html)
+                        result.source = extracted.source
+                        if extracted.outcome == "blocked":
+                            result.outcome = "blocked"
+                            result.errors.extend(extracted.errors)
+                            break
+                        page_items = extracted.items
 
                         new_on_page = 0
                         for item in page_items:
@@ -109,7 +115,7 @@ class AvitoHttpEngine:
         result.items = all_items
         result.total_found = len(all_items)
         result.elapsed_seconds = round(time.time() - start_time, 2)
-        return result
+        return finalize(result)
 
 
 http_engine = AvitoHttpEngine()

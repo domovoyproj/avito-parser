@@ -1,3 +1,26 @@
+// Same-origin mutations use the session's double-submit CSRF token.
+const nativeFetch = window.fetch.bind(window);
+function htmlText(value) {
+  return String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[char]));
+}
+function safeResourceUrl(value, fallback = '#') {
+  try {
+    const url = new URL(value, location.origin);
+    return ['http:', 'https:'].includes(url.protocol) ? htmlText(url.href) : fallback;
+  } catch { return fallback; }
+}
+window.fetch = (input, options = {}) => {
+  const request = input instanceof Request ? input : null;
+  const url = new URL(request ? request.url : String(input), location.href);
+  const method = String(options.method || (request && request.method) || 'GET').toUpperCase();
+  if (url.origin === location.origin && !['GET', 'HEAD', 'OPTIONS'].includes(method)) {
+    const headers = new Headers(options.headers || (request && request.headers));
+    const token = document.cookie.split('; ').find(value => value.startsWith('avito_csrf='));
+    if (token) headers.set('X-CSRF-Token', decodeURIComponent(token.slice('avito_csrf='.length)));
+    options = {...options, headers};
+  }
+  return nativeFetch(input, options);
+};
 function escapeToastText(value) { const el = document.createElement("span"); el.textContent = String(value); return el.innerHTML; }
 // Avito Parser Pro - Core JavaScript Helpers
 

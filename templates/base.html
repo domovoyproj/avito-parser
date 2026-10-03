@@ -4,37 +4,13 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{% block title %}Avito Max Parser — Control Terminal{% endblock %}</title>
+  <script src="/static/js/theme.js"></script>
   
-  <!-- Tailwind CSS -->
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script>
-    tailwind.config = {
-      darkMode: 'class',
-      theme: {
-        extend: {
-          colors: {
-            app: {
-              bg: 'var(--bg-app)',
-              sidebar: 'var(--bg-sidebar)',
-              card: 'var(--bg-card)',
-              cardHover: 'var(--bg-card-hover)',
-              input: 'var(--bg-input)',
-              border: 'var(--border-subtle)'
-            }
-          },
-          fontFamily: {
-            sans: ['Inter', '-apple-system', 'BlinkMacSystemFont', 'sans-serif'],
-            mono: ['JetBrains Mono', 'monospace']
-          }
-        }
-      }
-    }
-  </script>
-
+  <link rel="stylesheet" href="/static/css/tailwind.css">
   <!-- Lucide Icons -->
-  <script src="https://unpkg.com/lucide@latest"></script>
+  <script src="/static/vendor/lucide.js"></script>
   <!-- Chart.js -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="/static/vendor/chart.js"></script>
 
   <!-- Custom Styles -->
   <link rel="stylesheet" href="/static/css/styles.css?v=4.0.0">
@@ -63,9 +39,10 @@
     }
   </style>
   <link rel="stylesheet" href="/static/css/workspace.css?v=1">
+  <link rel="stylesheet" href="/static/css/design-system.css?v=5">
   {% block head %}{% endblock %}
 </head>
-<body class="h-full bg-[#050505] text-[#ededed] flex overflow-hidden font-sans antialiased selection:bg-white selection:text-black relative" style="background-color: #050505 !important; color: #ededed !important;">
+<body class="h-full flex overflow-hidden font-sans antialiased relative">
 
   <!-- Minimalist Ambient Glow -->
   <div class="ambient-glow"></div>
@@ -199,6 +176,7 @@
 
       <!-- Header Actions & User -->
       <div class="flex items-center gap-2.5">
+        <button type="button" class="theme-switch" aria-label="Светлая тема">Светлая тема</button>
         <a href="/parser" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-[#ededed] hover:bg-white text-[#050505] transition shadow-sm">
           <i data-lucide="play" class="w-3.5 h-3.5"></i>
           <span>Запустить сбор</span>
