@@ -205,6 +205,8 @@
   </div>
 
   <!-- ITEMS CONTAINER (GRID VIEW) -->
+  <div id="catalog-loading" role="status" hidden>Загружаем объявления…</div>
+  <div id="catalog-error" role="alert" hidden class="panel-card p-4">Не удалось загрузить объявления. Показаны последние полученные данные. <button onclick="loadItems(currentPage)" class="btn-primary">Повторить</button></div>
   <div id="items-grid-container" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4">
     <div class="col-span-full py-16 text-center text-slate-500 text-xs font-mono">Загрузка объявлений...</div>
   </div>
@@ -457,7 +459,12 @@ async function loadSearchSelectOptions() {
   } catch (e) {}
 }
 
+let catalogueRequest = null;
 async function loadItems(page = 1) {
+  if (catalogueRequest) catalogueRequest.abort();
+  const request = catalogueRequest = new AbortController();
+  document.getElementById('catalog-loading').hidden = false;
+  document.getElementById('catalog-error').hidden = true;
   currentPage = page;
   const query = document.getElementById('filter-query').value.trim();
   const searchId = document.getElementById('filter-search-id').value;
@@ -486,7 +493,8 @@ async function loadItems(page = 1) {
   if (favoritesOnly) params.append('favorites_only', 'true');
   if (hideReserved) params.append('hide_reserved', 'true');
   try {
-    const data = await apiFetch(`/api/items?${params.toString()}`);
+    const data = await apiFetch(`/api/items?${params.toString()}`, {signal: request.signal});
+    if (request !== catalogueRequest) return;
     totalPages = data.total_pages;
 
     // Cache items for quick lookups
@@ -507,7 +515,9 @@ async function loadItems(page = 1) {
     updateBatchBar();
 
   } catch (err) {
-    console.error('Failed to load items:', err);
+    if (err.name !== 'AbortError' && request === catalogueRequest) document.getElementById('catalog-error').hidden = false;
+  } finally {
+    if (request === catalogueRequest) document.getElementById('catalog-loading').hidden = true;
   }
 }
 
@@ -1020,7 +1030,8 @@ async function clearAllDatabase() {
   }
 }
 
-function exportData(fmt) {
+let exportPending = false;
+async function exportData(fmt) {
   const query = document.getElementById('filter-query').value.trim();
   const searchId = document.getElementById('filter-search-id').value;
   const minPrice = document.getElementById('filter-min-price').value;
@@ -1034,7 +1045,31 @@ function exportData(fmt) {
   if (maxPrice) params.append('max_price', maxPrice);
   if (discountOnly) params.append('with_discount_only', 'true');
 
-  window.location.href = `/api/export/${fmt}?${params.toString()}`;
+  if (!canMutate() || !['excel', 'csv'].includes(fmt)) {
+    window.location.href = `/api/export/${fmt}?${params.toString()}`;
+    return;
+  }
+  if (exportPending) { showToast('Экспорт уже готовится', 'info'); return; }
+  exportPending = true;
+  try {
+    const payload = {format: fmt === 'excel' ? 'xlsx' : 'csv', query: query || null,
+      search_query_id: searchId || null, min_price: minPrice ? Number(minPrice) : null,
+      max_price: maxPrice ? Number(maxPrice) : null, with_discount_only: discountOnly};
+    const job = await apiFetch('/api/export-jobs', {method: 'POST', body: JSON.stringify(payload)});
+    showToast('Экспорт готовится в фоне. Можно продолжать работу.', 'info');
+    for (let attempt = 0; attempt < 300; attempt++) {
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      const state = await apiFetch(`/api/export-jobs/${job.job_id}`);
+      if (state.status === 'failed') throw new Error('Не удалось создать экспорт. Уточните фильтры и повторите.');
+      if (state.status === 'completed') {
+        window.location.href = state.download_url;
+        showToast(`Экспорт готов: ${state.rows_written} строк`, 'success');
+        return;
+      }
+    }
+    showToast('Экспорт продолжается. Файл доступен через список заданий экспорта.', 'info');
+  } catch (error) { showToast(error.message, 'error'); }
+  finally { exportPending = false; }
 }
 
 async function initItemsPage() {

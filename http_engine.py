@@ -82,6 +82,9 @@ class AvitoHttpEngine:
                         html = resp.text
                         extracted = extract_page(html)
                         result.source = extracted.source
+                        if extracted.outcome == 'error':
+                            result.errors.extend(extracted.errors)
+                            break
                         if extracted.outcome == "blocked":
                             result.outcome = "blocked"
                             result.errors.extend(extracted.errors)
@@ -101,7 +104,7 @@ class AvitoHttpEngine:
 
                     except Exception as e:
                         if attempt == 2:
-                            err_msg = f"Ошибка HTTP запроса: {e}"
+                            err_msg = f"Ошибка HTTP запроса: {type(e).__name__}"
                             result.errors.append(err_msg)
                             console.print(f"[red]✗ {err_msg}[/red]")
                         await asyncio.sleep(1.5)

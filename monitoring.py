@@ -15,6 +15,8 @@ from browser_engine import browser_engine
 from http_engine import http_engine
 from coordination import lease
 from outbox import outbox_worker
+from observability import observed, configure_logging
+configure_logging()
 logger = logging.getLogger("AvitoMonitoring")
 
 class MonitoringService:
@@ -24,6 +26,7 @@ class MonitoringService:
         self.is_running: bool = False
         self.task: Optional[asyncio.Task] = None
         self.last_run: Optional[datetime] = None
+        self.last_duration_seconds: Optional[float] = None
         self.next_run: Optional[datetime] = None
         self.current_checking: Optional[str] = None
         self.last_results: Dict[str, Any] = {"new": 0, "drops": 0, "errors": 0}
@@ -49,6 +52,7 @@ class MonitoringService:
         self.current_checking = None
         logger.info("🔴 Фоновый сервис мониторинга Авито остановлен")
 
+    @observed('search')
     async def check_search(self, search):
         lock = self._search_locks.setdefault(search.id, asyncio.Lock())
         if lock.locked():
@@ -91,7 +95,7 @@ class MonitoringService:
 
             if result and result.outcome == "blocked":
                 return {"new": 0, "drops": 0, "errors": 1}
-            if not result or not result.items:
+            if not result or (not result.items and result.outcome != 'empty'):
                 engine_used = "browser"
                 result = await browser_engine.parse_search(search.url, max_pages=1)
 
@@ -123,15 +127,17 @@ class MonitoringService:
 
                 await outbox_worker.drain()
 
-            await db.update_search_last_checked(search.id)
         except Exception as e:
             logger.error(f"Ошибка при проверке поиска #{search.id}: {type(e).__name__}")
             return {"new": new_count, "drops": drop_count, "errors": 1}
         finally:
             self.current_checking = None
+            if search.id is not None:
+                await db.update_search_last_checked(search.id)
 
         return {"new": new_count, "drops": drop_count}
 
+    @observed('monitoring-cycle')
     async def run_all_now(self, due_only=False):
         if self._run_lock.locked():
             return {"new": 0, "drops": 0, "errors": 0, "skipped": 1}
@@ -147,7 +153,7 @@ class MonitoringService:
         if due_only:
             now = datetime.now()
             searches = [s for s in searches if s.last_checked_at is None or
-                        now - s.last_checked_at >= timedelta(minutes=max(1, s.check_interval_min))]
+                        now.timestamp() - s.last_checked_at.timestamp() >= 60*max(1, s.check_interval_min)]
         total_new = 0
         total_drops = 0
         self.last_run = datetime.now()

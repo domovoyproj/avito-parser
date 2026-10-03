@@ -1,5 +1,17 @@
 // Same-origin mutations use the session's double-submit CSRF token.
 const nativeFetch = window.fetch.bind(window);
+function canMutate() { return document.body?.dataset.role !== 'viewer'; }
+document.addEventListener('DOMContentLoaded', () => {
+  if (canMutate()) return;
+  const protect = () => document.querySelectorAll('button[onclick],button[data-write]').forEach(button => {
+    if (button.hasAttribute('data-write') || /(?:save|delete|clear|toggleFavorite|toggleModalFavorite|toggleHide|executeBatch|openAddSearch|triggerCheck|toggleMonitoring|requestItemAI|refreshItemDetails)/i.test(button.getAttribute('onclick') || '')) {
+      button.disabled = true;
+      button.title = 'Просмотр: изменение данных недоступно';
+    }
+  });
+  protect();
+  new MutationObserver(protect).observe(document.body, {childList:true,subtree:true});
+});
 function htmlText(value) {
   return String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[char]));
 }

@@ -42,7 +42,7 @@
   <link rel="stylesheet" href="/static/css/design-system.css?v=5">
   {% block head %}{% endblock %}
 </head>
-<body class="h-full flex overflow-hidden font-sans antialiased relative">
+<body data-role="{{ user.role if user else '' }}" class="h-full flex overflow-hidden font-sans antialiased relative">
 
   <!-- Minimalist Ambient Glow -->
   <div class="ambient-glow"></div>
@@ -107,7 +107,9 @@
         <i data-lucide="trending-down" class="w-4 h-4 text-emerald-400"></i>
         <span>Падения цен</span>
       </a>
+      <a href="/exports" class="nav-item {% if page == 'exports' %}active{% endif %}"><i data-lucide="download" class="w-4 h-4"></i><span>Готовые экспорты</span></a>
 
+      {% if user and user.role == 'admin' %}
       <div class="pt-4 px-3 pb-2 text-[10px] font-bold uppercase tracking-widest text-slate-500 font-mono">Конфигурация</div>
 
       <a href="/proxies" class="nav-item {% if page == 'proxies' %}active{% endif %}">
@@ -125,7 +127,6 @@
         <span>Журнал событий</span>
       </a>
 
-      {% if user and user.role == 'admin' %}
       <div class="pt-4 px-3 pb-2 text-[10px] font-bold uppercase tracking-widest text-slate-500 font-mono">Администрирование</div>
 
       <a href="/admin/users" class="nav-item {% if page == 'admin_users' %}active{% endif %}">

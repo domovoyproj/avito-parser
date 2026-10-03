@@ -1,26 +1,28 @@
 # Статус апгрейда — 2026-10-03
 
-Работа продолжается по Issues #1–12, общий roadmap #13. Интеграционный PR #14. Частично выполненные эпики не закрываются.
+Roadmap #13, реализация PR #14. Все 12 направлений получили реализацию и проверки. Issues открыты до зелёного финального CI и слияния. Production-развёртывание не выполнено.
 
-| Issue | Уже реализовано | Оставшиеся критерии |
-|---|---|---|
-| #1 | Валидация, atomic .env, runtime engines, rollback, 12 тестов | Merge и проверка реальной установки |
-| #2 | Bootstrap без известного пароля, rate limit, CSRF/origin, роли, cookie flags, отзыв сессий, проверка WS | Тест отзыва открытого WS, аудит bot commands и полного UI XSS |
-| #3 | Constraints, общий offline runner, критический lint, audit, Windows/Linux matrix | Дождаться зелёных CI, проверить поддержку всех версий |
-| #4 | WAL, FK, busy timeout, атомарное сохранение/history, memberships, версии схемы, backup | Полный аудит агрегатов memberships, fixture старой схемы, проверка будущей версии до DDL |
-| #5 | JSON/URI/DOM fixtures, malformed cards, нулевая цена, typed outcomes | Дополнить fixtures деталей и callback contracts |
-| #6 | Общий сервис web/bot, local locks и SQLite leases, concurrency 3, timeout, blocked/partial без stale cleanup | CLI, due scheduling, lost lease cancellation и лимиты/cancel parser jobs выполнены; добавить полные scheduler time fixtures |
-| #7 | Transactional outbox по получателю, retries, lease recovery, Retry-After, quiet hours, formatter | Crash recovery fixtures, JSON Retry-After и метрики выполнены; complete formatter limits |
-| #8 | Auth/settings routers, auth dependencies, monitoring/notification services; OpenAPI неизменён | Остальные routers, repositories и полноценная DI |
-| #9 | Исправленная медиана, закрытые исключены, None price LLM, ограниченный cache/budget и безопасные LLM logs | SQLite cache/budget, версия/confidence и маскирование ключа выполнены; тесты ответа/таймаута провайдера |
-| #10 | Локальные Tailwind/Lucide/Chart, tokens, две темы, app shell, общий стиль, безопасный вывод основных полей; browser smoke 360/768/1440 | Focus trap/keyboard выполнен и проверен browser smoke; все страницы/роли и визуальный QA ошибок |
-| #11 | Excel колонки, CSV URL/zero, formula injection, HTML escape/safe URL, filename uniqueness, thread export, явный limit 10k, online backup | Background exports, streaming XLSX, backup CLI, 100k benchmark и restore drill |
-| #12 | Health/ready, non-root image, .dockerignore, Docker CI smoke, operations guide | Метрики и redaction добавлены; Docker build/non-root/readiness CI прошёл; release smoke |
+| Issue | Реализовано |
+|---|---|
+| #1 | .env/API/restart round-trip; finite/range validation; atomic replace/comments; rollback live settings; proxy/headless/timeout/delays; 12 tests |
+| #2 | Одноразовый bootstrap без стандартного пароля; отключение legacy admin/admin123 и local recovery; rate limit, CSRF/origin/cookie/roles; session expiry/revoke и открытый WS; bot identity guards; XSS fixtures |
+| #3 | Constraints с Python/platform markers; isolated runner; Windows/Linux 3.10/3.11/3.13; lint/audit; local UI deps и browser CI |
+| #4 | WAL/FK/busy timeout; atomic item/history/membership/outbox; actual legacy fixture/idempotent migration/future guard; concurrent writes; membership aggregates; backup при записи/restore drill |
+| #5 | Raw/URI JSON, DOM/details, malformed cards/priceDetailed, free/zero price; success/empty/blocked/partial/error; unknown layout error; blocked без browser fallback |
+| #6 | Shared web/bot/CLI scheduler; locks/renewable leases/owner checks; concurrency 3; due/active hours; cancel/timeout/shutdown; parser job limits; lost lease fixtures; no false stale cleanup |
+| #7 | Outbox per recipient; atomic enqueue, recovery/CAS, 429 Retry-After, retry max 8, quiet hours; invalid payload failure; seller blacklist; bounded formatter/zero price; at-least-once documented |
+| #8 | 8 routers, repositories, monitoring/parser/export services; FastAPI DI; OpenAPI equality для переносов; dependency override test |
+| #9 | Even median, excludes hidden/closed/zero; score version/confidence/factors; one market snapshot/batch; SQLite cache TTL/cap и atomic budget; masked key; provider 429/timeout/cache fixtures |
+| #10 | App shell/dashboard/catalog/forms, dark/light tokens, local assets; 360/768/1440; keyboard/focus/Escape; real API/error/retry/empty/loading; race-safe filtering; roles; 11-page browser QA |
+| #11 | Safe exports/formula injection/URL/zero; legacy limit; durable streaming CSV/XLSX batches 1000/recovery; unassigned filter/range validation; 100k benchmark; backup/restore CLI |
+| #12 | Health/ready; admin queue age/errors/duration/jobs/DB metrics; redacted JSON run/search logs; non-root Docker/writable volumes; restart CI; release archive/import smoke; runbooks/baseline |
 
-Локально: offline suite (28 unit tests до последних дополнительных изменений плюс 3 scripts) прошла; отдельно 6 storage/export tests прошли. Ruff прошёл. pip-audit: No known vulnerabilities found. Browser smoke прошёл для 6 страниц, трёх ширин, filtering и сохранения light theme, с проверкой настоящего fixture count=24. OpenAPI before/after выделения routers полностью совпал. Локально Docker отсутствует: сборка проверяется CI, результат нельзя считать подтверждённым заранее.
+## Проверки
 
-Следующей модели: сначала прочитать AGENTS.md и этот файл, затем выбранный Issue. Запустить Graphify query/affected/explain до анализа. Не объявлять roadmap завершённым по наличию базовой реализации. Приоритет продолжения: CI → #6 CLI/due/jobs → #4 memberships/migrations → #7 crash fixtures → #9 persistent budget/secrets → #10 keyboard/visual → #11 large exports → #12 metrics/release.
+Windows/Python 3.13: полный runner прошёл 52 unit-теста и три regression-скрипта. Затем добавлены два теста уведомлений; targeted regression повторяет monitoring/storage/security. Финальный CI запускает 54 unit-теста и три скрипта из чистых установок. Ruff/audit прошли, известных уязвимостей в locked runtime dependencies не обнаружено.
 
-## Последнее продолжение
+Browser: 11 страниц × 3 ширины, themes, search creation, favorite, background CSV download, filter/empty/error/retry, long XSS text, viewer/operator denial, keyboard dialogs; нет JS exceptions/horizontal overflow. Before/after screenshots вне репозитория: `work/ui-before`, `work/ui-final`. CI публикует after screenshots artifact `ui-screenshots`. OpenAPI equality относится к refactoring; новые jobs/metrics/score fields добавлены намеренно.
 
-CI commit faffd36: Docker и Python 3.11/3.13 на Windows/Linux прошли. Python 3.10 installation выявила несовместимый websockets 17.1; добавлен 16.1.1 для 3.10 и platform dependencies. Повторный CI ещё требуется. Добавлены тесты websocket session revoke, parser limit/cancel, AI key mask/preserve/delete, concurrent shared LLM budget/cache и bot authorization. Схема теперь версии 4. Browser smoke проверяет focus trap, Escape и return focus.
+Измерения: [BENCHMARKS.md](BENCHMARKS.md). Docker локально отсутствует, результат определяется GitHub CI. Live Avito/Telegram/webhook/LLM не запускались. Synthetic scoring fixtures не подтверждают качество реального рынка; confidence означает полноту данных. Enqueue time старого outbox оценивается временем миграции, поскольку исходных timestamps не было. Process env имеет приоритет над .env; после изменения настроек в одном процессе остальные перезапустить.
+
+Далее: финальный зелёный CI → review/merge PR #14 → smoke установки по OPERATIONS.md. Не закрывать эпики по одному промежуточному commit.

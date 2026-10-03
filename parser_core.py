@@ -13,6 +13,8 @@ class AvitoDataExtractor:
         """Очистка строки цены и перевод в int (например '15 500  ₽/мес.' -> 15500)"""
         if not price_str:
             return None
+        if str(price_str).strip().lower() in ('бесплатно', 'даром', 'free'):
+            return 0
         # Удаляем неразрывные пробелы и спецсимволы
         cleaned = price_str.replace("\xa0", "").replace(" ", "").replace("&nbsp;", "")
         digits = re.findall(r"\d+", cleaned)

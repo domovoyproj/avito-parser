@@ -208,6 +208,9 @@ class AvitoBrowserEngine:
                         # Извлечение объявлений
                         extracted = extract_page(html)
                         result.source = extracted.source
+                        if extracted.outcome == 'error':
+                            result.errors.extend(extracted.errors)
+                            break
                         if extracted.outcome == "blocked":
                             result.outcome = "blocked"
                             result.errors.extend(extracted.errors)
@@ -232,7 +235,7 @@ class AvitoBrowserEngine:
                     except Exception as e:
                         console.print(f"[yellow]Попытка {attempt} для стр. {page_num} завершилась ошибкой: {e}[/yellow]")
                         if attempt == 2:
-                            result.errors.append(f"Ошибка загрузки стр. {page_num}: {e}")
+                            result.errors.append(f"Ошибка загрузки стр. {page_num}: {type(e).__name__}")
                         await asyncio.sleep(2)
 
                 if not page_loaded or len(all_items) == 0:
@@ -277,7 +280,7 @@ class AvitoBrowserEngine:
                 return item
 
             except Exception as e:
-                console.print(f"[red]Ошибка парсинга карточки {item_url}: {e}[/red]")
+                console.print(f"[red]Ошибка парсинга карточки: {type(e).__name__}[/red]")
                 await context.browser.close()
                 return None
 

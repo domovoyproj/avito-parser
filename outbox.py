@@ -13,6 +13,7 @@ from config import config
 from database import db
 from models import AvitoItem
 from notifications import format_item_notification
+from security import avito_url
 
 
 def quiet_now(settings, hour):
@@ -45,10 +46,17 @@ class OutboxWorker:
             await connection.commit()
 
     async def deliver(self, job):
-        payload = json.loads(job['payload'])
-        item = AvitoItem.model_validate(payload['item'])
+        try:
+            payload = json.loads(job['payload'])
+            item = AvitoItem.model_validate(payload['item'])
+        except (ValueError, KeyError, TypeError):
+            await self.finish(job, 'failed', error='invalid payload')
+            return
         retry = min(3600, 30 * (2 ** min(job['attempts'], 7)))
         try:
+            if item.seller and item.seller.name in await self.db.get_blacklisted_sellers():
+                await self.finish(job, 'skipped', attempted=False)
+                return
             async with httpx.AsyncClient(timeout=15) as client:
                 if job['channel'] == 'telegram':
                     if not config.telegram.bot_token:
@@ -76,9 +84,9 @@ class OutboxWorker:
                             await self.finish(job, 'skipped')
                             return
                     text = await format_item_notification(item, payload['search_name'], payload['type'])
-                    message = {
-                        'chat_id': chat, 'text': text, 'parse_mode': 'HTML',
-                        'reply_markup': {'inline_keyboard': [[{'text': 'Открыть объявление', 'url': item.url}]]}}
+                    message = {'chat_id': chat, 'text': text, 'parse_mode': 'HTML'}
+                    if avito_url(item.url):
+                        message['reply_markup'] = {'inline_keyboard': [[{'text': 'Открыть объявление', 'url': item.url}]]}
                     endpoint = 'sendMessage'
                     if config.telegram.send_photos and settings.send_photos and item.main_image and len(text) < 1000:
                         endpoint = 'sendPhoto'
@@ -110,11 +118,11 @@ class OutboxWorker:
                             if server_retry is None:
                                 server_retry = response.json().get('parameters', {}).get('retry_after', retry)
                             retry = max(1, min(86400, float(server_retry)))
-                        except ValueError:
+                        except (ValueError, TypeError, AttributeError):
                             pass
                     permanent = (400 <= response.status_code < 500 and response.status_code != 429) or job['attempts'] >= 7
                     await self.finish(job, 'failed' if permanent else 'pending', retry, f'HTTP {response.status_code}')
-        except (httpx.HTTPError, ValueError, KeyError):
+        except (httpx.HTTPError, ValueError, KeyError, TypeError, AttributeError):
             await self.finish(job, 'failed' if job['attempts'] >= 7 else 'pending', retry, 'delivery error')
 
     async def drain(self, limit=20):

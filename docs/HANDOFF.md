@@ -1,50 +1,36 @@
-Актуальный статус и остаток всех задач: [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md). Пользователь поручил выполнять весь roadmap, включая UI.
+# Передача работы другой модели
 
-# Передача работы следующей модели
+Пользователь поручил весь roadmap, включая полноценное обновление UI. [Issue #13](https://github.com/domovoyproj/avito-parser/issues/13), [PR #14](https://github.com/domovoyproj/avito-parser/pull/14), ветка `codex/upgrade-foundation`, исходный main `6baf52b`. Слияние и развёртывание не выполнены. Актуальный статус: [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md). Старые комментарии описывают промежуточные результаты.
 
-Дата: 2026-10-03. Исходный commit: 6baf52b (main).
-Roadmap: https://github.com/domovoyproj/avito-parser/issues/13
-Первый PR: https://github.com/domovoyproj/avito-parser/pull/14
+## Архитектура
 
-## UI: дополнительное требование пользователя
-
-Полностью обновить визуал, а не только функциональные состояния. Актуальная спецификация — Issue #10: CSS tokens и темы, общий app shell, dashboard, карточки/таблицы/фильтры, детали лота, формы настроек и мониторинг, mobile 360/768/1440 px. Прототипы и foundations можно начинать до архитектурного рефакторинга. Приёмка по screenshots до/после, единому стилю, длинным русским текстам и browser smoke на fixtures.
-
-## Выполнено в первом PR
-
-- Graphify установлен/доступен; выполнены extract --code-only, query, affected, god-nodes, explain.
-- graphify-out/ уже находится в .gitignore; AGENTS.md уже задаёт workflow Graphify.
-- В config.py восстановлено чтение timeout/delays и send_photos после перезапуска.
-- SaveSettingsRequest проверяет положительный timeout, конечные неотрицательные задержки и min <= max.
-- Сохранение .env сохраняет неизвестные переменные и комментарии, экранирует значения и использует atomic replace; очистка proxy удаляет старое значение.
-- Добавлены 12 изолированных unittest и шаг CI. Локально прошли config tests и test_panel_regressions.py на Windows / Python 3.13.
-- API сначала сохраняет staged settings, затем применяет их в памяти; при OSError возвращает 500 без раскрытия путей и без изменения live settings.
-- Проверен POST/GET settings, перезапуск с чистым окружением и отказ записи через настоящий ASGI API на временной БД/.env.
-- HTTP timeout и межстраничные задержки используют config. Смена/очистка proxy обновляет manager и singleton движки HTTP/Playwright; headless обновляется после успешной записи.
-
-## Следующий шаг
-
-Реализация и offline критерии Issue #1 выполнены в PR #14; закрывать после слияния. Следующие задачи: #2 (безопасность), #3 (CI), либо визуальные foundations #10. Настройки применяются к новым запросам/контекстам; уже открытый browser context или HTTP session не пересоздаются посреди сбора. Приложение пока рассчитано на один процесс: другие процессы не получают изменение настроек автоматически — это область #6.
+- `web_server.py`: lifespan, middleware, страницы, health/ready/metrics и регистрация роутеров.
+- `routers/`: auth, settings, searches, items, analytics, monitoring, parser, exports. `dependencies.py`: FastAPI overrides для БД, engines, jobs и monitoring. Middleware проверяет настоящую БД сессий независимо от подмены бизнес-зависимости в тесте.
+- `database.py`: соединения, атомарные миграции, backup и совместимый фасад. SQL в `repositories/{items,searches,users,settings,analytics}.py`. `SCHEMA_VERSION` — единый номер схемы; future version отклоняется до DDL.
+- `monitoring.py`: общий web/bot/CLI сервис. `coordination.py`: renewable SQLite leases с отменой при потере владельца. `parser_jobs.py`: limits, timeout/cancel/shutdown.
+- `outbox.py`/`notifications.py`: события per recipient, leases/retry/quiet hours/filters и общий formatter. Доставка at-least-once.
+- `llm_store.py`: общий SQLite cache и daily budget. `export_jobs.py`/`streaming_export.py`: durable очередь, snapshot чтения, batches 1000, CSV/write-only XLSX. `manage_db.py`: backup/restore CLI.
+- UI: Jinja2/JS, локальные vendor assets, npm Tailwind build. Tokens в styles.css, dashboard в overview.js, темы/keyboard dialogs в theme.js.
 
 ## Команды
 
 ```sh
-python -m venv .venv
-# Windows: .venv/Scripts/python.exe; Linux: .venv/bin/python
-python -m pip install -r requirements.txt
-python -m pip install graphifyy
-graphify extract . --code-only
-graphify god-nodes
-graphify query "AppConfig"
-graphify affected config.py
-graphify explain AppConfig
-python -m unittest test_config -v
-python test_panel_regressions.py
+python -m pip install -r requirements-dev.txt -c constraints.txt
+python run_offline_tests.py
+python -m ruff check --select E9,F63,F7,F82 .
+python -m pip_audit -r constraints.txt
+npm ci
+npm run build
+python -m playwright install chromium
+# Отдельный терминал:
+python tools/ui_fixture.py
+python tools/ui_smoke.py --out ui-artifacts
 ```
 
-Использовать Python активированного venv. Graphify может быть установлен отдельно: проверять `graphify --help`, поскольку PATH и `python -m pip` могут указывать на разные окружения. После изменения структуры обновить граф. AST не доказывает runtime wiring и не индексирует HTML/templates/config в code-only режиме.
+Тесты используют временные БД/mock внешние сервисы. Fixture server: 127.0.0.1:18765; его пароли относятся только к временной базе. Не использовать для установки.
 
-## Ограничения проверки
+Перед продолжением читать AGENTS.md, статус и выбранную Issue. Graphify (`graphifyy`) установлен отдельным CLI: query/affected/god-nodes/explain перед анализом; `graphify extract . --code-only` и `graphify export html` после структурных изменений. graphify-out/ игнорируется. AST не покрывает template/runtime wiring; vendor JS может стать шумным hub. SQL fixture требует tree_sitter_sql для индексации — сама миграция проверена SQLite-тестом.
 
-Сетевой сбор с Avito, Chromium, отправка Telegram/LLM и Docker не запускались. Не считать их проверенными. test_ai_scoring_engine.py пока пишет в общую БД; не запускать его без изоляции. CI на GitHub должен отдельно подтвердить Linux/Python 3.11. Невалидные числовые env значения используют defaults, обратный диапазон сбрасывает обе задержки. Повторный AppConfig.load() сохраняет приоритет уже заданного process environment; применение после перезапуска проверено через чистое окружение.
+CI: Windows/Linux Python 3.10/3.11/3.13, audit, импорт распакованного релиза, Docker UID/readiness/restart, отдельный Chromium UI job с screenshots artifact. Не объявлять CI зелёным до результата. Эпики закрывать после критериев и слияния.
 
+После зелёных checks: review/merge PR, smoke установки по OPERATIONS.md. Live Avito/Telegram/webhook/LLM не проверены. Confidence — полнота данных, не вероятность выгодной покупки. Архивы содержат новые modules/constraints; установка требует доступности package registries.

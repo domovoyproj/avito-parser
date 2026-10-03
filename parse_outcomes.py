@@ -1,5 +1,6 @@
 """Shared extraction outcomes. A blocked page is never treated as empty."""
 from models import ParseResult
+import re
 from parser_core import AvitoDataExtractor
 
 
@@ -12,6 +13,8 @@ def extract_page(html):
     if not items:
         items = AvitoDataExtractor.extract_from_dom(html)
         source = "html"
+    if not items and not (any(marker in lowered for marker in ('ничего не найдено','объявлений не найдено','no results')) or re.search(r'"items"\s*:\s*\[\s*\]',html)):
+        return ParseResult(outcome='error',source=source,errors=['Не удалось распознать выдачу источника'])
     return ParseResult(items=items, total_found=len(items), outcome="success" if items else "empty", source=source)
 
 

@@ -191,6 +191,7 @@ graphify extract . --code-only
 graphify query "MonitoringService Database"
 graphify affected web_server.py
 graphify god-nodes
+graphify explain monitoring.py::MonitoringService
 ```
 
 ---
@@ -221,4 +222,8 @@ avito-parser/
 </div>
 
 Команды Telegram разрешены только пользователям, чей личный ID указан в TELEGRAM_ADMIN_CHAT_IDS. Список получателей-групп сам по себе не даёт их участникам права управлять парсером.
+
+Полный upgrade roadmap и передача другой модели: [Issues #13](https://github.com/domovoyproj/avito-parser/issues/13), [HANDOFF](docs/HANDOFF.md), [статус](docs/IMPLEMENTATION_STATUS.md). Проверка всей offline suite: `python run_offline_tests.py`. Browser QA и безопасное обновление/восстановление описаны в [OPERATIONS](docs/OPERATIONS.md); замеры 100k в [BENCHMARKS](docs/BENCHMARKS.md).
+
+CSV/XLSX создаются в фоне и доступны на странице «Готовые экспорты». Панель поддерживает светлую/тёмную темы, мобильную навигацию и клавиатурные диалоги. Первый администратор: `python setup_admin.py`; восстановление старого стандартного аккаунта: `python setup_admin.py --reset-password`. Пароль admin123 отключён.
 

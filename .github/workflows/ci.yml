@@ -29,6 +29,54 @@ jobs:
           done
           docker logs avito-ci
           exit 1
+      - name: Restart preserves database
+        run: |
+          docker exec avito-ci python -c "import sqlite3; c=sqlite3.connect('/app/data/avito.db'); c.execute('CREATE TABLE release_smoke(value TEXT)'); c.execute('INSERT INTO release_smoke VALUES (?)', ('persisted',)); c.commit()"
+          docker restart avito-ci
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8000/ready; then break; fi
+            sleep 2
+          done
+          docker exec avito-ci python -c "import sqlite3; c=sqlite3.connect('/app/data/avito.db'); assert c.execute('SELECT value FROM release_smoke').fetchone()[0] == 'persisted'; assert c.execute('PRAGMA integrity_check').fetchone()[0] == 'ok'"
+      - name: Container cleanup
+        if: always()
+        run: docker rm -f avito-ci || true
+  browser-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - name: Install and verify local UI assets
+        run: |
+          python -m pip install -r requirements-dev.txt -c constraints.txt
+          npm ci
+          npm run build
+          git diff --exit-code -- static/css/tailwind.css static/vendor
+          python -m playwright install --with-deps chromium
+      - name: Offline browser scenarios
+        env:
+          PYTHONIOENCODING: utf-8
+        run: |
+          python tools/ui_fixture.py > /tmp/avito-ui.log 2>&1 &
+          fixture_pid=$!
+          trap 'kill "$fixture_pid" || true' EXIT
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:18765/ready; then break; fi
+            sleep 1
+          done
+          python tools/ui_smoke.py --out ui-artifacts
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ui-screenshots
+          path: ui-artifacts
   panel-tests:
     name: Panel regression tests
     strategy:

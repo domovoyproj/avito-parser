@@ -7,6 +7,7 @@ from database import Database, db
 from security import LoginLimiter, same_origin
 import test_config
 import web_server
+from dependencies import get_parser_jobs
 
 
 class SecurityTests(unittest.IsolatedAsyncioTestCase):
@@ -24,10 +25,25 @@ class SecurityTests(unittest.IsolatedAsyncioTestCase):
         await self.client.post('/api/ai/settings', json={'clear_api_key': True})
         self.assertEqual((await db.get_ai_settings()).api_key, '')
 
+    async def test_known_legacy_admin_password_disabled_and_local_reset_available(self):
+        password,salt=db.hash_password('admin123')
+        async with db.connection() as connection:
+            await connection.execute("UPDATE users SET password_hash=?,salt=? WHERE username='admin'",(password,salt))
+            await connection.commit()
+        await db.init_default_admin()
+        self.assertIsNone(await db.authenticate_user('admin','admin123'))
+        users=await db.get_all_users()
+        user=next(user for user in users if user.username=='admin')
+        self.assertFalse(user.is_active)
+        ok,_=await db.update_user(user.id,new_password='recovery-fixture-password',is_active=True,role=UserRole.ADMIN)
+        self.assertTrue(ok)
+        self.assertIsNotNone(await db.authenticate_user('admin','recovery-fixture-password'))
+
     async def test_parser_limits_cancel_and_spoofed_url(self):
         async def blocked(*args, **kwargs):
             await asyncio.Event().wait()
         manager = web_server.ParsingJobManager()
+        web_server.app.dependency_overrides[get_parser_jobs]=lambda:manager
         with patch.object(web_server, 'job_manager', manager), patch.object(web_server.http_engine, 'parse_search', side_effect=blocked):
             try:
                 self.assertEqual((await self.client.post('/api/parser/start', json={'url': 'https://attacker.test/avito.ru'})).status_code, 400)
@@ -41,6 +57,7 @@ class SecurityTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(response.status_code, 200)
                 self.assertEqual(manager.active_jobs[jobs[0]]['status'], 'cancelled')
             finally:
+                web_server.app.dependency_overrides.pop(get_parser_jobs,None)
                 tasks = list(manager.tasks.values())
                 for task in tasks:
                     task.cancel()
@@ -54,7 +71,7 @@ class SecurityTests(unittest.IsolatedAsyncioTestCase):
         manager = web_server.ParsingJobManager()
         manager.create_job('fixture', 'https://www.avito.ru/fixture', 1, 'http')
         with patch.object(web_server, 'job_manager', manager), patch.object(db, 'get_user_by_session', AsyncMock(side_effect=[object(), None])):
-            await web_server.ws_parser(socket, 'fixture')
+            await web_server.ws_parser(socket, 'fixture',job_manager=manager,db=db)
         socket.accept.assert_awaited_once()
         socket.close.assert_awaited_once_with(code=1008)
         self.assertEqual(manager.subscribers['fixture'], [])

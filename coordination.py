@@ -7,7 +7,7 @@ from database import db
 
 
 @asynccontextmanager
-async def lease(name, database=db):
+async def lease(name, database=db, ttl=60, renewal_interval=15):
     owner = uuid.uuid4().hex
     now = time.time()
     async with database.connection() as connection:
@@ -15,7 +15,7 @@ async def lease(name, database=db):
         row = await (await connection.execute('SELECT owner, expires_at FROM work_leases WHERE name=?', (name,))).fetchone()
         acquired = not row or row[1] < now
         if acquired:
-            await connection.execute('INSERT INTO work_leases VALUES (?, ?, ?) ON CONFLICT(name) DO UPDATE SET owner=excluded.owner, expires_at=excluded.expires_at', (name, owner, now+60))
+            await connection.execute('INSERT INTO work_leases VALUES (?, ?, ?) ON CONFLICT(name) DO UPDATE SET owner=excluded.owner, expires_at=excluded.expires_at', (name, owner, now+ttl))
         await connection.commit()
     if not acquired:
         yield False
@@ -24,10 +24,10 @@ async def lease(name, database=db):
     holder = asyncio.current_task()
     async def heartbeat():
         while True:
-            await asyncio.sleep(15)
+            await asyncio.sleep(renewal_interval)
             try:
                 async with database.connection() as connection:
-                    result = await connection.execute('UPDATE work_leases SET expires_at=? WHERE name=? AND owner=?', (time.time()+60, name, owner))
+                    result = await connection.execute('UPDATE work_leases SET expires_at=? WHERE name=? AND owner=?', (time.time()+ttl, name, owner))
                     await connection.commit()
                     if result.rowcount != 1:
                         holder.cancel()
