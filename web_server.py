@@ -35,7 +35,8 @@ from models import (
 from ai_scoring import deal_scoring_engine
 from parser_core import AvitoDataExtractor
 from proxy_manager import ProxyManager, proxy_manager
-from security import login_limiter, same_origin
+from security import login_limiter, same_origin, avito_url
+from observability import RedactingFilter, redact
 
 # --- Логирование и кольцевой буфер для Веб-панели ---
 class WebLogBuffer(logging.Handler):
@@ -46,7 +47,7 @@ class WebLogBuffer(logging.Handler):
 
     def emit(self, record: logging.LogRecord):
         try:
-            msg = self.format(record)
+            msg = redact(self.format(record))
             entry = {
                 "id": len(self.records) + 1,
                 "timestamp": datetime.fromtimestamp(record.created).strftime("%H:%M:%S"),
@@ -69,6 +70,8 @@ log_buffer.setFormatter(formatter)
 root_logger = logging.getLogger()
 root_logger.setLevel(logging.INFO)
 root_logger.addHandler(log_buffer)
+for handler in root_logger.handlers:
+    handler.addFilter(RedactingFilter())
 
 logger = logging.getLogger("AvitoWeb")
 
@@ -80,8 +83,15 @@ class ParsingJobManager:
     def __init__(self):
         self.active_jobs: Dict[str, Dict[str, Any]] = {}
         self.subscribers: Dict[str, List[WebSocket]] = {}
+        self.tasks = {}
 
     def create_job(self, job_id: str, url: str, max_pages: int, engine: str) -> Dict[str, Any]:
+        for key, old in list(self.active_jobs.items()):
+            if key not in self.tasks and time.time() - old['start_time'] > 3600:
+                self.active_jobs.pop(key, None)
+                self.subscribers.pop(key, None)
+        if len(self.tasks) >= 3 or len(self.active_jobs) >= 100:
+            raise HTTPException(status_code=429, detail='Достигнут лимит задач парсинга')
         job = {
             "job_id": job_id,
             "url": url,
@@ -105,6 +115,7 @@ class ParsingJobManager:
         if job_id in self.active_jobs:
             if message_type == "log":
                 self.active_jobs[job_id]["logs"].append(data)
+                self.active_jobs[job_id]['logs'] = self.active_jobs[job_id]['logs'][-500:]
             elif message_type == "progress":
                 self.active_jobs[job_id].update(data)
             elif message_type == "complete":
@@ -146,6 +157,9 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
+        for task in list(job_manager.tasks.values()):
+            task.cancel()
+        await asyncio.gather(*job_manager.tasks.values(), return_exceptions=True)
         outbox_task.cancel()
         try:
             await outbox_task
@@ -175,6 +189,19 @@ async def ready():
         return {'status': 'ready'}
     except Exception:
         return JSONResponse(status_code=503, content={'status': 'unavailable'})
+
+
+@app.get('/api/metrics')
+async def operational_metrics():
+    async with db.connection() as connection:
+        rows = await (await connection.execute('SELECT status, COUNT(*) FROM notification_outbox GROUP BY status')).fetchall()
+        oldest = await (await connection.execute("SELECT MIN(available_at) FROM notification_outbox WHERE status='pending'")).fetchone()
+        count = await (await connection.execute('SELECT COUNT(*) FROM items')).fetchone()
+    return {'outbox': dict(rows), 'oldest_pending_at': oldest[0], 'items': count[0],
+            'database_bytes': config.db_path.stat().st_size if config.db_path.exists() else 0,
+            'active_parser_jobs': len(job_manager.tasks),
+            'last_monitoring_cycle': monitor_service.last_run.isoformat() if monitor_service.last_run else None,
+            'last_monitoring_results': monitor_service.last_results}
 
 app.add_middleware(
     CORSMiddleware,
@@ -214,7 +241,7 @@ async def protect_api(request: Request, call_next):
             csrf = request.cookies.get(CSRF_COOKIE_NAME, "")
             if not csrf or not hmac.compare_digest(csrf, request.headers.get("x-csrf-token", "")):
                 return JSONResponse(status_code=403, content={"detail": "Недопустимый CSRF-токен"})
-        admin_paths = ("/api/admin/", "/api/settings", "/api/ai/", "/api/proxies", "/api/telegram/", "/api/webhook", "/api/scoring/", "/api/logs")
+        admin_paths = ("/api/admin/", "/api/settings", "/api/ai/", "/api/proxies", "/api/telegram/", "/api/webhook", "/api/scoring/", "/api/logs", "/api/metrics")
         if path.startswith(admin_paths) and user.role != UserRole.ADMIN:
             return JSONResponse(status_code=403, content={"detail": "Требуются права администратора"})
         if unsafe and user.role == UserRole.VIEWER and not path.startswith("/api/auth/"):
@@ -630,7 +657,7 @@ class SearchCreateRequest(BaseModel):
 
 @app.post("/api/searches")
 async def api_create_search(req: SearchCreateRequest):
-    if "avito.ru" not in req.url:
+    if not avito_url(req.url):
         raise HTTPException(status_code=400, detail="Ссылка должна вести на домен avito.ru")
 
     url = req.url.strip()
@@ -744,10 +771,12 @@ class ParseSearchRequest(BaseModel):
 
 @app.post("/api/parser/start")
 async def api_start_parse_search(req: ParseSearchRequest):
-    if "avito.ru" not in req.url:
+    if not avito_url(req.url):
         raise HTTPException(status_code=400, detail="Ссылка должна вести на avito.ru")
 
-    job_id = f"job_{int(time.time() * 1000)}"
+    if req.engine not in ('http', 'playwright'):
+        raise HTTPException(status_code=422, detail='Неизвестный движок')
+    job_id = 'job_' + secrets.token_hex(12)
     job_manager.create_job(job_id, req.url, req.max_pages, req.engine)
 
     # Фоновая задача парсинга
@@ -807,8 +836,27 @@ async def api_start_parse_search(req: ParseSearchRequest):
             await job_manager.broadcast(job_id, "error", str(e))
             await job_manager.broadcast(job_id, "log", f"❌ Критическая ошибка: {e}")
 
-    asyncio.create_task(run_parser_task())
+    task = asyncio.create_task(asyncio.wait_for(run_parser_task(), timeout=180))
+    job_manager.tasks[job_id] = task
+    def finished(done):
+        job_manager.tasks.pop(job_id, None)
+        if done.cancelled():
+            job_manager.active_jobs[job_id]['status'] = 'cancelled'
+        elif done.exception():
+            job_manager.active_jobs[job_id]['status'] = 'error'
+            job_manager.active_jobs[job_id]['errors'].append(type(done.exception()).__name__)
+    task.add_done_callback(finished)
     return {"status": "started", "job_id": job_id}
+
+
+@app.post('/api/parser/{job_id}/cancel')
+async def cancel_parser(job_id: str):
+    task = job_manager.tasks.get(job_id)
+    if not task:
+        raise HTTPException(status_code=404, detail='Активная задача не найдена')
+    task.cancel()
+    await asyncio.gather(task, return_exceptions=True)
+    return {'status': 'cancelled'}
 
 @app.websocket("/ws/parser/{job_id}")
 async def ws_parser(websocket: WebSocket, job_id: str):
@@ -819,6 +867,9 @@ async def ws_parser(websocket: WebSocket, job_id: str):
         return
     token = websocket.cookies.get(SESSION_COOKIE_NAME)
     if not token or not await db.get_user_by_session(token):
+        await websocket.close(code=1008)
+        return
+    if job_id not in job_manager.active_jobs:
         await websocket.close(code=1008)
         return
     await websocket.accept()
@@ -858,7 +909,7 @@ class ParseItemRequest(BaseModel):
 
 @app.post("/api/parser/item")
 async def api_parse_item(req: ParseItemRequest):
-    if "avito.ru" not in req.url:
+    if not avito_url(req.url):
         raise HTTPException(status_code=400, detail="Ссылка должна вести на avito.ru")
 
     logger.info(f"🔍 Детальный парсинг карточки: {req.url}")

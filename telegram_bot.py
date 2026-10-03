@@ -4,7 +4,7 @@ import logging
 import random
 from datetime import datetime
 from typing import Optional
-from aiogram import Bot, Dispatcher, F, types
+from aiogram import Bot, Dispatcher, F, types, BaseMiddleware
 from aiogram.enums import ParseMode
 from aiogram.filters import Command, CommandStart
 from aiogram.types import FSInputFile, InlineKeyboardButton, InlineKeyboardMarkup
@@ -18,6 +18,20 @@ from browser_engine import browser_engine
 logger = logging.getLogger("AvitoTelegramBot")
 
 dp = Dispatcher()
+
+
+class AdminCommandMiddleware(BaseMiddleware):
+    async def __call__(self, handler, event, data):
+        sender = getattr(event, 'from_user', None)
+        if not sender or sender.id not in config.telegram.admin_chat_ids:
+            if isinstance(event, types.CallbackQuery):
+                await event.answer('Доступ ограничен администратором', show_alert=True)
+            return
+        return await handler(event, data)
+
+
+dp.message.outer_middleware(AdminCommandMiddleware())
+dp.callback_query.outer_middleware(AdminCommandMiddleware())
 
 
 def get_main_keyboard() -> InlineKeyboardMarkup:

@@ -33,3 +33,12 @@ def same_origin(origin, url):
 
 
 login_limiter = LoginLimiter()
+
+
+def avito_url(value):
+    try:
+        url = urlsplit(value)
+        host = (url.hostname or '').lower()
+        return url.scheme in ('https', 'http') and (host == 'avito.ru' or host.endswith('.avito.ru')) and not url.username and not url.password and url.port in (None, 80, 443)
+    except (ValueError, TypeError):
+        return False

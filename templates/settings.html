@@ -282,6 +282,7 @@
               </button>
             </div>
             <p class="text-[10px] text-slate-500 mt-1 font-sans">Для Ollama ключ можно оставить пустым. Для DeepSeek получите ключ на platform.deepseek.com.</p>
+            <label class="text-xs"><input id="set-ai-clear-key" type="checkbox"> Удалить сохранённый ключ</label>
           </div>
         </div>
       </div>
@@ -472,6 +473,7 @@ async function loadSettings() {
       document.getElementById('set-ai-model').value = ai.model || 'deepseek-chat';
       document.getElementById('set-ai-base-url').value = ai.api_base || 'https://api.deepseek.com';
       document.getElementById('set-ai-api-key').value = ai.api_key || '';
+      document.getElementById('set-ai-api-key').placeholder = ai.has_api_key ? 'Ключ сохранён; оставьте пустым, чтобы сохранить' : 'sk-...';
     }
 
   } catch (err) {
@@ -531,7 +533,8 @@ async function saveAllSettings() {
           provider: aiProvider,
           model: aiModel,
           api_base: aiBaseUrl,
-          api_key: aiKey
+          api_key: aiKey,
+          clear_api_key: document.getElementById('set-ai-clear-key').checked
         })
       }),
       saveWebhookSettings()

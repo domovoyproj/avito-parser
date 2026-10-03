@@ -49,6 +49,8 @@ class AvitoItem(BaseModel):
     market_avg_price: Optional[int] = Field(default=None, description="Средняя рыночная цена аналогов")
     is_hot_deal: bool = Field(default=False, description="Флаг горячего предложения (цена ниже рынка на 15%+)")
     deal_score: int = Field(default=50, description="Скоринг сделки 0-100")
+    score_version: str = Field(default='deterministic-2', description='Версия правил оценки')
+    score_confidence: float = Field(default=0, ge=0, le=1, description='Полнота сигналов оценки, не вероятность успеха сделки')
     deal_grade: str = Field(default="FAIR", description="GEM | HOT | FAIR | CAUTION")
     deal_reasons: List[str] = Field(default_factory=list, description="Факторы оценки")
     ai_summary: Optional[str] = Field(default=None, description="Краткий вердикт ИИ")

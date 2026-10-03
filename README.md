@@ -219,3 +219,6 @@ avito-parser/
 <div align="center">
   Разработано для эффективного мониторинга рынка • <b><a href="https://github.com/domovoyproj">domovoyproj</a></b> • 2026
 </div>
+
+Команды Telegram разрешены только пользователям, чей личный ID указан в TELEGRAM_ADMIN_CHAT_IDS. Список получателей-групп сам по себе не даёт их участникам права управлять парсером.
+

@@ -65,9 +65,7 @@ class MonitoringService:
         now_hour = datetime.now().hour
         start = getattr(search, 'active_hours_start', 0)
         end = getattr(search, 'active_hours_end', 24)
-        if end == 24:
-            pass  # 24/7 мониторинг
-        elif start < end:
+        if start < end:
             if now_hour < start or now_hour >= end:
                 logger.info(f"⏸ Поиск '{search.name}' вне активных часов ({start}:00-{end}:00), пропуск")
                 return {'new': 0, 'drops': 0}

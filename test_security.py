@@ -1,6 +1,6 @@
 import asyncio
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch, AsyncMock, MagicMock
 import httpx
 from models import UserRole
 from database import Database, db
@@ -12,6 +12,52 @@ import web_server
 class SecurityTests(unittest.IsolatedAsyncioTestCase):
     setUp = test_config.SettingsAPITests.setUp
     asyncSetUp = test_config.SettingsAPITests.asyncSetUp
+
+    async def test_ai_key_mask_preserve_replace_and_delete(self):
+        response = await self.client.post('/api/ai/settings', json={'api_key': 'fixture-private-key'})
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn('fixture-private-key', response.text)
+        response = await self.client.get('/api/ai/settings')
+        self.assertTrue(response.json()['settings']['has_api_key'])
+        await self.client.post('/api/ai/settings', json={'api_key': '', 'model': 'new-model'})
+        self.assertEqual((await db.get_ai_settings()).api_key, 'fixture-private-key')
+        await self.client.post('/api/ai/settings', json={'clear_api_key': True})
+        self.assertEqual((await db.get_ai_settings()).api_key, '')
+
+    async def test_parser_limits_cancel_and_spoofed_url(self):
+        async def blocked(*args, **kwargs):
+            await asyncio.Event().wait()
+        manager = web_server.ParsingJobManager()
+        with patch.object(web_server, 'job_manager', manager), patch.object(web_server.http_engine, 'parse_search', side_effect=blocked):
+            try:
+                self.assertEqual((await self.client.post('/api/parser/start', json={'url': 'https://attacker.test/avito.ru'})).status_code, 400)
+                jobs = []
+                for _ in range(3):
+                    response = await self.client.post('/api/parser/start', json={'url': 'https://www.avito.ru/fixture', 'engine': 'http'})
+                    self.assertEqual(response.status_code, 200)
+                    jobs.append(response.json()['job_id'])
+                self.assertEqual((await self.client.post('/api/parser/start', json={'url': 'https://www.avito.ru/fixture'})).status_code, 429)
+                response = await self.client.post(f'/api/parser/{jobs[0]}/cancel')
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(manager.active_jobs[jobs[0]]['status'], 'cancelled')
+            finally:
+                tasks = list(manager.tasks.values())
+                for task in tasks:
+                    task.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
+
+    async def test_websocket_rechecks_revoked_session(self):
+        socket = MagicMock()
+        socket.headers, socket.cookies = {}, {'avito_session': 'fixture'}
+        socket.url = 'ws://test/ws/parser/fixture'
+        socket.accept, socket.close, socket.send_text = AsyncMock(), AsyncMock(), AsyncMock()
+        manager = web_server.ParsingJobManager()
+        manager.create_job('fixture', 'https://www.avito.ru/fixture', 1, 'http')
+        with patch.object(web_server, 'job_manager', manager), patch.object(db, 'get_user_by_session', AsyncMock(side_effect=[object(), None])):
+            await web_server.ws_parser(socket, 'fixture')
+        socket.accept.assert_awaited_once()
+        socket.close.assert_awaited_once_with(code=1008)
+        self.assertEqual(manager.subscribers['fixture'], [])
 
     async def test_csrf_origin_and_viewer_permissions(self):
         self.client.headers.pop("X-CSRF-Token")

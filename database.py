@@ -46,7 +46,13 @@ class Database:
         """Инициализация таблиц базы данных SQLite"""
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         async with self.connection() as db:
+            exists = await (await db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='schema_migrations'")).fetchone()
+            if exists:
+                version = await (await db.execute('SELECT MAX(version) FROM schema_migrations')).fetchone()
+                if version and version[0] and version[0] > 4:
+                    raise ValueError('Database schema is newer than this application')
             await db.execute("PRAGMA journal_mode=WAL")
+            await db.execute('BEGIN IMMEDIATE')
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS items (
                     id TEXT PRIMARY KEY,
@@ -284,14 +290,21 @@ class Database:
 
             await db.execute("CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)")
             cursor = await db.execute("SELECT COALESCE(MAX(version), 0) FROM schema_migrations")
-            if (await cursor.fetchone())[0] > 3:
+            if (await cursor.fetchone())[0] > 4:
                 raise RuntimeError("Database schema is newer than this application")
             await db.execute("CREATE TABLE IF NOT EXISTS item_searches (item_id TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE, search_id INTEGER NOT NULL REFERENCES searches(id) ON DELETE CASCADE, last_seen_at TEXT NOT NULL, PRIMARY KEY(item_id, search_id))")
             await db.execute("INSERT OR IGNORE INTO item_searches SELECT id, search_query_id, updated_at FROM items WHERE search_query_id IN (SELECT id FROM searches)")
             await db.execute("CREATE TABLE IF NOT EXISTS work_leases (name TEXT PRIMARY KEY, owner TEXT NOT NULL, expires_at REAL NOT NULL)")
             await db.execute("CREATE TABLE IF NOT EXISTS notification_outbox (id INTEGER PRIMARY KEY AUTOINCREMENT, event_key TEXT UNIQUE NOT NULL, channel TEXT NOT NULL, destination TEXT NOT NULL, payload TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', attempts INTEGER NOT NULL DEFAULT 0, available_at REAL NOT NULL DEFAULT 0, lease_until REAL NOT NULL DEFAULT 0, lease_token TEXT, last_error TEXT)")
             await db.execute("CREATE INDEX IF NOT EXISTS idx_outbox_pending ON notification_outbox(status, available_at)")
-            for version in (1, 2, 3):
+            await db.execute('CREATE TABLE IF NOT EXISTS llm_cache (cache_key TEXT PRIMARY KEY, verdict TEXT NOT NULL, expires_at REAL NOT NULL)')
+            await db.execute('CREATE TABLE IF NOT EXISTS llm_budget (day TEXT PRIMARY KEY, requests INTEGER NOT NULL)')
+            columns = {row[1] for row in await (await db.execute('PRAGMA table_info(items)')).fetchall()}
+            if 'score_version' not in columns:
+                await db.execute("ALTER TABLE items ADD COLUMN score_version TEXT DEFAULT 'legacy-1'")
+            if 'score_confidence' not in columns:
+                await db.execute('ALTER TABLE items ADD COLUMN score_confidence REAL DEFAULT 0')
+            for version in (1, 2, 3, 4):
                 await db.execute("INSERT OR IGNORE INTO schema_migrations VALUES (?, ?)", (version, datetime.now().isoformat()))
             await db.commit()
 
@@ -409,6 +422,7 @@ class Database:
                     detected_flaws_json, 1 if item.is_hot_deal else 0,
                     1 if item.is_reserved else 0, 1 if item.is_closed else 0, content_hash, now, item.id
                 ))
+            await db.execute('UPDATE items SET score_version=?,score_confidence=? WHERE id=?', (item.score_version, item.score_confidence, item.id))
             if item.search_query_id is not None:
                 await db.execute("INSERT INTO item_searches VALUES (?, ?, ?) ON CONFLICT(item_id, search_id) DO UPDATE SET last_seen_at=excluded.last_seen_at", (item.id, item.search_query_id, now.isoformat()))
             if is_new or is_price_drop:
@@ -749,7 +763,8 @@ class Database:
             cursor = await db.execute("""
                 SELECT s.*, COUNT(i.id) AS items_count
                 FROM searches s
-                LEFT JOIN items i ON s.id = i.search_query_id
+                LEFT JOIN item_searches membership ON s.id=membership.search_id
+                LEFT JOIN items i ON i.id=membership.item_id
                 GROUP BY s.id
                 ORDER BY s.id ASC
             """)
@@ -1020,6 +1035,8 @@ class Database:
             market_avg_price=row["market_avg_price"] if "market_avg_price" in cols else None,
             is_hot_deal=bool(row["is_hot_deal"]) if "is_hot_deal" in cols else False,
             deal_score=deal_score,
+            score_version=row['score_version'] if 'score_version' in cols else 'legacy-1',
+            score_confidence=row['score_confidence'] if 'score_confidence' in cols else 0,
             deal_grade=deal_grade,
             deal_reasons=deal_reasons,
             ai_summary=ai_summary,
@@ -1594,10 +1611,10 @@ class Database:
 
             # Расчет медианной цены
             cursor_med = await db.execute(f"""
-                SELECT price FROM items WHERE {where_sql} ORDER BY price ASC LIMIT 1 OFFSET ?
-            """, params + [count // 2])
-            med_row = await cursor_med.fetchone()
-            median_p = med_row[0] if med_row else int(avg_p)
+                SELECT price FROM items WHERE {where_sql} ORDER BY price ASC LIMIT ? OFFSET ?
+            """, params + [2 if count % 2 == 0 else 1, (count - 1) // 2])
+            middle = await cursor_med.fetchall()
+            median_p = int(sum(row[0] for row in middle) / len(middle)) if middle else int(avg_p)
 
             return PriceStats(
                 item_count=count,
@@ -1614,10 +1631,10 @@ class Database:
         async with self.connection() as db:
             # Группировка по search_query_id
             cursor = await db.execute("""
-                SELECT search_query_id, AVG(price) as avg_price
-                FROM items
-                WHERE price IS NOT NULL AND price > 0 AND search_query_id IS NOT NULL
-                GROUP BY search_query_id
+                SELECT membership.search_id, AVG(i.price) as avg_price
+                FROM item_searches membership JOIN items i ON i.id=membership.item_id
+                WHERE i.price IS NOT NULL AND i.price > 0 AND COALESCE(i.is_closed,0)=0 AND COALESCE(i.is_hidden,0)=0
+                GROUP BY membership.search_id
             """)
             groups = await cursor.fetchall()
 

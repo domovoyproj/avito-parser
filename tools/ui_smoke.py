@@ -38,6 +38,16 @@ async def run(destination):
         await page.click('.theme-switch')
         await page.goto('http://127.0.0.1:18765/items')
         await page.wait_for_selector('.product-card')
+        opener = page.locator('button[onclick^="openItemModal"]').first
+        await opener.focus()
+        await opener.click()
+        await page.wait_for_selector('#item-modal:not(.hidden)')
+        await page.wait_for_function("document.getElementById('item-modal').contains(document.activeElement)")
+        await page.keyboard.press('Shift+Tab')
+        assert await page.evaluate("document.getElementById('item-modal').contains(document.activeElement)")
+        await page.keyboard.press('Escape')
+        await page.wait_for_selector('#item-modal.hidden', state='attached')
+        assert await opener.evaluate('(el) => document.activeElement === el')
         await page.fill('#filter-query', 'fixture no matching item')
         await page.wait_for_timeout(700)
         assert await page.locator('.product-card').count() == 0

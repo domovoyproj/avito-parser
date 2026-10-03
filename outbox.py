@@ -106,7 +106,10 @@ class OutboxWorker:
                 else:
                     if response.status_code == 429:
                         try:
-                            retry = max(1, min(86400, float(response.headers.get('Retry-After', retry))))
+                            server_retry = response.headers.get('Retry-After')
+                            if server_retry is None:
+                                server_retry = response.json().get('parameters', {}).get('retry_after', retry)
+                            retry = max(1, min(86400, float(server_retry)))
                         except ValueError:
                             pass
                     permanent = (400 <= response.status_code < 500 and response.status_code != 429) or job['attempts'] >= 7

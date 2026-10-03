@@ -80,6 +80,25 @@ class MonitoringTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(quiet_now(settings, 1))
         self.assertFalse(quiet_now(settings, 12))
 
+    async def test_delivery_crash_lease_recovery_and_quiet_deferral(self):
+        settings = config.config.telegram.model_copy(deep=True)
+        settings.bot_token, settings.admin_chat_ids = 'fixture-only', [1]
+        with patch.object(config.config, 'telegram', settings):
+            await self.db.save_item(AvitoItem(id='recover', title='fixture', url='https://www.avito.ru/fixture'))
+        worker = OutboxWorker(self.db)
+        crashed = await worker.claim()
+        async with self.db.connection() as connection:
+            await connection.execute('UPDATE notification_outbox SET lease_until=0 WHERE id=?', (crashed['id'],))
+            await connection.commit()
+        recovered = await worker.claim()
+        self.assertEqual(crashed['id'], recovered['id'])
+        self.assertNotEqual(crashed['lease_token'], recovered['lease_token'])
+        await worker.finish(crashed, 'sent')
+        await worker.finish(recovered, 'pending', 300, 'quiet hours', attempted=False)
+        async with self.db.connection() as connection:
+            self.assertEqual(await (await connection.execute('SELECT status, attempts FROM notification_outbox')).fetchone(), ('pending', 0))
+        self.assertIsNone(await worker.claim())
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -29,6 +29,7 @@ class StorageTests(unittest.IsolatedAsyncioTestCase):
             items, count = await self.db.get_items_filtered(search_query_id=search_id)
             self.assertEqual(count, 1)
             self.assertEqual(items[0].id, "shared")
+        self.assertEqual([search['items_count'] for search in await self.db.get_searches_with_counts()], [1, 1])
         async with self.db.connection() as connection:
             self.assertEqual((await (await connection.execute("PRAGMA foreign_keys")).fetchone())[0], 1)
             history = await (await connection.execute("SELECT old_price, new_price FROM price_history ORDER BY id")).fetchall()
@@ -45,7 +46,7 @@ class StorageTests(unittest.IsolatedAsyncioTestCase):
         await restored.init_db()
         self.assertIsNotNone(await restored.get_item_by_id("backup"))
         with closing(sqlite3.connect(backup)) as connection:
-            self.assertEqual(connection.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0], 3)
+            self.assertEqual(connection.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0], 4)
             self.assertEqual(connection.execute("PRAGMA integrity_check").fetchone()[0], "ok")
         with self.assertRaises(ValueError):
             await self.db.backup(self.db.db_path)
@@ -62,6 +63,17 @@ class StorageTests(unittest.IsolatedAsyncioTestCase):
             await self.db.save_item(AvitoItem(id=f'median-{index}', title='Fixture', price=price,
                                            is_closed=closed, url='https://www.avito.ru/fixture', search_query_id=search))
         self.assertEqual(await self.db.get_search_market_stats(search), (150, 150))
+
+    async def test_future_schema_refused_before_ddl(self):
+        future = self.root / 'future.db'
+        with closing(sqlite3.connect(future)) as connection:
+            connection.execute('CREATE TABLE schema_migrations (version INTEGER)')
+            connection.execute('INSERT INTO schema_migrations VALUES (99)')
+            connection.commit()
+        with self.assertRaises(ValueError):
+            await Database(future).init_db()
+        with closing(sqlite3.connect(future)) as connection:
+            self.assertEqual(connection.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall(), [('schema_migrations',)])
 
 
 if __name__ == "__main__":

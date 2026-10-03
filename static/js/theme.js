@@ -22,6 +22,29 @@
       modal.setAttribute('role', 'dialog'); modal.setAttribute('aria-modal', 'true');
       const heading = modal.querySelector('h2, h3');
       if (heading) { heading.id ||= modal.id + '-heading'; modal.setAttribute('aria-labelledby', heading.id); }
+      let returnFocus = null;
+      let wasOpen = false;
+      const visible = () => !modal.classList.contains('hidden') && getComputedStyle(modal).display !== 'none';
+      const focusables = () => [...modal.querySelectorAll('button,a[href],input,select,textarea,[tabindex="0"]')].filter(el => el.offsetParent !== null && !el.disabled);
+      new MutationObserver(() => {
+        const open = visible();
+        if (open && !wasOpen) { returnFocus = document.activeElement; (focusables()[0] || modal).focus(); }
+        if (!open && wasOpen && returnFocus?.isConnected) returnFocus.focus();
+        wasOpen = open;
+      }).observe(modal, {attributes: true, attributeFilter: ['class', 'style']});
+      modal.tabIndex = -1;
+      modal.addEventListener('keydown', event => {
+        if (event.key === 'Escape') {
+          const close = modal.querySelector('button[onclick*="close"], button[aria-label*="Закрыть"]');
+          if (close) close.click();
+        }
+        if (event.key !== 'Tab') return;
+        const elements = focusables();
+        const first = elements[0], last = elements.at(-1);
+        if (!first) { event.preventDefault(); modal.focus(); }
+        else if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+      });
     });
   });
 })();

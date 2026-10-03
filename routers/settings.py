@@ -229,6 +229,7 @@ class SaveAISettingsRequest(BaseModel):
     enabled: bool = False
     provider: str = "deepseek"
     api_key: str = ""
+    clear_api_key: bool = False
     model: str = "deepseek-chat"
     api_base: str = "https://api.deepseek.com"
     prompt_template: Optional[str] = None
@@ -242,26 +243,30 @@ class TestAIRequest(BaseModel):
 @router.get("/api/ai/settings")
 async def api_get_ai_settings():
     settings = await db.get_ai_settings()
-    return {"settings": settings.model_dump(mode="json")}
+    data = settings.model_dump(mode='json')
+    data['has_api_key'] = bool(data['api_key'])
+    data['api_key'] = ''
+    return {"settings": data}
 
 @router.post("/api/ai/settings")
 async def api_save_ai_settings(req: SaveAISettingsRequest):
+    existing = await db.get_ai_settings()
     settings = AISettings(
         enabled=req.enabled,
         provider=req.provider,
-        api_key=req.api_key.strip(),
+        api_key='' if req.clear_api_key else (req.api_key.strip() or existing.api_key),
         model=req.model.strip(),
         api_base=req.api_base.strip(),
         prompt_template=req.prompt_template
     )
     saved = await db.save_ai_settings(settings)
     logger.info(f"🧠 Настройки AI обновлены: провайдер={saved.provider}, модель={saved.model}, enabled={saved.enabled}")
-    return {"status": "success", "settings": saved.model_dump(mode="json"), "message": "Настройки AI успешно сохранены"}
+    return {"status": "success", **(await api_get_ai_settings()), "message": "Настройки AI успешно сохранены"}
 
 @router.post("/api/ai/test")
 async def api_test_ai_connection(req: TestAIRequest):
     provider = (req.provider or "deepseek").lower()
-    api_key = req.api_key.strip()
+    api_key = req.api_key.strip() or (await db.get_ai_settings()).api_key
     model = req.model.strip() or "deepseek-chat"
     api_base = req.api_base.strip().rstrip("/")
 

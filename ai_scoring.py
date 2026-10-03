@@ -11,7 +11,6 @@ import logging
 import re
 import hashlib
 import time
-from collections import OrderedDict
 from typing import Dict, List, Optional, Tuple
 import httpx
 
@@ -47,9 +46,6 @@ class DealScoringEngine:
     # Пользовательские правила скоринга (загружаются из БД)
     _custom_penalties: List[Tuple[str, str]] = []
     _custom_boosters: List[Tuple[str, str, int]] = []
-    _verdict_cache = OrderedDict()
-    _budget_day = ''
-    _budget_calls = 0
 
     @classmethod
     def detect_flaws(cls, text: str) -> List[str]:
@@ -79,6 +75,11 @@ class DealScoringEngine:
         Возвращает кортеж: (deal_score, deal_grade, deal_reasons, detected_flaws).
         """
         score = 0
+        item.score_version = 'deterministic-2'
+        item.score_confidence = round(sum(bool(signal) for signal in (
+            item.price is not None, market_median or market_avg,
+            item.seller, item.images or item.main_image, item.params, item.description
+        )) / 6, 2)
         reasons: List[str] = []
         flaws: List[str] = []
 
@@ -404,17 +405,14 @@ class DealScoringEngine:
 
         url = f"{api_base}/chat/completions"
         cache_key = hashlib.sha256(json.dumps([url, model, payload, hashlib.sha256(api_key.encode()).hexdigest()], sort_keys=True, ensure_ascii=False).encode()).hexdigest()
-        cached = cls._verdict_cache.get(cache_key)
-        if cached and time.time() - cached[0] < 86400:
-            cls._verdict_cache.move_to_end(cache_key)
-            return cached[1]
+        from llm_store import cached_verdict, reserve_budget, save_verdict
+        cached = await cached_verdict(cache_key)
+        if cached:
+            return cached
         day = time.strftime('%Y-%m-%d')
-        if cls._budget_day != day:
-            cls._budget_day, cls._budget_calls = day, 0
-        if cls._budget_calls >= 100:
-            logger.warning('LLM daily process budget exhausted')
+        if not await reserve_budget(day):
+            logger.warning('LLM daily shared budget exhausted')
             return None
-        cls._budget_calls += 1
 
         try:
             async with httpx.AsyncClient(timeout=25.0) as client:
@@ -424,9 +422,7 @@ class DealScoringEngine:
                     choices = data.get("choices", [])
                     if choices and len(choices) > 0:
                         verdict = choices[0].get("message", {}).get("content", "").strip()
-                        cls._verdict_cache[cache_key] = (time.time(), verdict[:2000])
-                        while len(cls._verdict_cache) > 1024:
-                            cls._verdict_cache.popitem(last=False)
+                        await save_verdict(cache_key, verdict[:2000])
                         return verdict[:2000]
                 else:
                     logger.warning('LLM request failed: HTTP %s', response.status_code)
