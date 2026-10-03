@@ -1,34 +1,12 @@
-# ==============================================================================
-# DOCKERFILE FOR AVITO MAX PARSER & AI DEAL SCORING ENGINE
-# ==============================================================================
-FROM mcr.microsoft.com/playwright/python:v1.45.0-jammy
-
+FROM python:3.11-slim
 WORKDIR /app
-
-# Environment variables
-ENV PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1 \
-    SCRAPER_HEADLESS=true \
-    WEB_HOST=0.0.0.0 \
-    WEB_PORT=8000
-
-# Install dependencies
-COPY requirements.txt .
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt && \
-    python -m playwright install chromium
-
-# Copy application source
-COPY . .
-
-# Create persistent folders
-RUN mkdir -p data exports logs
-
-# Expose Web Interface Port
+ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 SCRAPER_HEADLESS=true WEB_HOST=0.0.0.0 WEB_PORT=8000 PLAYWRIGHT_BROWSERS_PATH=/opt/browsers APP_ENV_FILE=/app/config/.env
+COPY requirements.txt constraints.txt ./
+RUN pip install --no-cache-dir -r requirements.txt -c constraints.txt && python -m playwright install --with-deps chromium
+RUN groupadd --gid 10001 avito && useradd --uid 10001 --gid avito --create-home avito
+COPY --chown=avito:avito . .
+RUN mkdir -p data exports logs config && chown -R avito:avito data exports logs config /opt/browsers
+USER avito
 EXPOSE 8000
-
-# Volume mounts for persistence
-VOLUME ["/app/data", "/app/exports", "/app/logs"]
-
-# Default start command: Web Server
+HEALTHCHECK --interval=30s --timeout=5s CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=3)"
 CMD ["python", "web_server.py"]

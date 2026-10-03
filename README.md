@@ -125,7 +125,7 @@ start_telegram_bot.bat   :: Запуск Telegram-бота
 start_all.bat            :: Запуск всех сервисов одновременно
 ```
 
-> **Первый вход:** `admin` / `admin123`. Смените пароль в настройках панели после входа!
+> **Первый вход:** в активированном venv выполните `python setup_admin.py` и задайте свой пароль (не менее 12 символов). Известный пароль больше не создаётся. Существующие аккаунты сохраняются; смена пароля отзывает все их сессии. Для автоматического bootstrap можно временно задать `BOOTSTRAP_ADMIN_USERNAME` и `BOOTSTRAP_ADMIN_PASSWORD`, затем удалить секрет из окружения. За HTTPS reverse proxy включите `WEB_SECURE_COOKIES=true`.
 
 ### Вариант 2. Linux (Ubuntu / Debian) через systemd
 
@@ -191,6 +191,7 @@ graphify extract . --code-only
 graphify query "MonitoringService Database"
 graphify affected web_server.py
 graphify god-nodes
+graphify explain monitoring.py::MonitoringService
 ```
 
 ---
@@ -219,3 +220,10 @@ avito-parser/
 <div align="center">
   Разработано для эффективного мониторинга рынка • <b><a href="https://github.com/domovoyproj">domovoyproj</a></b> • 2026
 </div>
+
+Команды Telegram разрешены только пользователям, чей личный ID указан в TELEGRAM_ADMIN_CHAT_IDS. Список получателей-групп сам по себе не даёт их участникам права управлять парсером.
+
+Полный upgrade roadmap и передача другой модели: [Issues #13](https://github.com/domovoyproj/avito-parser/issues/13), [HANDOFF](docs/HANDOFF.md), [статус](docs/IMPLEMENTATION_STATUS.md). Проверка всей offline suite: `python run_offline_tests.py`. Browser QA и безопасное обновление/восстановление описаны в [OPERATIONS](docs/OPERATIONS.md); замеры 100k в [BENCHMARKS](docs/BENCHMARKS.md).
+
+CSV/XLSX создаются в фоне и доступны на странице «Готовые экспорты». Панель поддерживает светлую/тёмную темы, мобильную навигацию и клавиатурные диалоги. Первый администратор: `python setup_admin.py`; восстановление старого стандартного аккаунта: `python setup_admin.py --reset-password`. Пароль admin123 отключён.
+

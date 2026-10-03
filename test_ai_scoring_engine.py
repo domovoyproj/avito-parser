@@ -3,6 +3,7 @@
 """
 
 import asyncio
+import tempfile
 import json
 from pathlib import Path
 from typing import Optional
@@ -207,4 +208,6 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    with tempfile.TemporaryDirectory() as directory:
+        db.db_path = Path(directory) / "scoring.db"
+        asyncio.run(main())

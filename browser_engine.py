@@ -12,6 +12,7 @@ from config import config
 from models import AvitoItem, ParseResult
 from parser_core import AvitoDataExtractor
 from proxy_manager import proxy_manager
+from parse_outcomes import extract_page, finalize
 
 console = Console()
 
@@ -196,16 +197,7 @@ class AvitoBrowserEngine:
                         await asyncio.sleep(random.uniform(1.5, 2.5))
 
                         if await self._check_and_handle_block(page):
-                            # Если прокси включены, пробуем ротировать прокси
-                            if config.proxy.enabled and config.proxy.rotate:
-                                new_proxy = proxy_manager.get_proxy()
-                                if new_proxy and new_proxy != self.proxy_str:
-                                    console.print(f"[yellow]Ротация прокси -> {new_proxy}[/yellow]")
-                                    await context.close()
-                                    context = await self._create_context(p, override_proxy=new_proxy)
-                                    page = await context.new_page()
-                                    continue
-
+                            result.outcome = 'blocked'
                             err_msg = f"Страница {page_num} заблокирована Авито (IP ограничение / Капча)."
                             result.errors.append(err_msg)
                             break
@@ -214,9 +206,16 @@ class AvitoBrowserEngine:
                         html = await page.content()
 
                         # Извлечение объявлений
-                        page_items = AvitoDataExtractor.extract_from_initial_data(html)
-                        if not page_items:
-                            page_items = AvitoDataExtractor.extract_from_dom(html)
+                        extracted = extract_page(html)
+                        result.source = extracted.source
+                        if extracted.outcome == 'error':
+                            result.errors.extend(extracted.errors)
+                            break
+                        if extracted.outcome == "blocked":
+                            result.outcome = "blocked"
+                            result.errors.extend(extracted.errors)
+                            break
+                        page_items = extracted.items
 
                         new_on_page = 0
                         for item in page_items:
@@ -236,7 +235,7 @@ class AvitoBrowserEngine:
                     except Exception as e:
                         console.print(f"[yellow]Попытка {attempt} для стр. {page_num} завершилась ошибкой: {e}[/yellow]")
                         if attempt == 2:
-                            result.errors.append(f"Ошибка загрузки стр. {page_num}: {e}")
+                            result.errors.append(f"Ошибка загрузки стр. {page_num}: {type(e).__name__}")
                         await asyncio.sleep(2)
 
                 if not page_loaded or len(all_items) == 0:
@@ -252,7 +251,7 @@ class AvitoBrowserEngine:
         result.items = all_items
         result.total_found = len(all_items)
         result.elapsed_seconds = round(time.time() - start_time, 2)
-        return result
+        return finalize(result)
 
     async def parse_item_detail(self, item_url: str) -> Optional[AvitoItem]:
         """
@@ -281,7 +280,7 @@ class AvitoBrowserEngine:
                 return item
 
             except Exception as e:
-                console.print(f"[red]Ошибка парсинга карточки {item_url}: {e}[/red]")
+                console.print(f"[red]Ошибка парсинга карточки: {type(e).__name__}[/red]")
                 await context.browser.close()
                 return None
 

@@ -1,3 +1,38 @@
+// Same-origin mutations use the session's double-submit CSRF token.
+const nativeFetch = window.fetch.bind(window);
+function canMutate() { return document.body?.dataset.role !== 'viewer'; }
+document.addEventListener('DOMContentLoaded', () => {
+  if (canMutate()) return;
+  const protect = () => document.querySelectorAll('button[onclick],button[data-write]').forEach(button => {
+    if (button.hasAttribute('data-write') || /(?:save|delete|clear|toggleFavorite|toggleModalFavorite|toggleHide|executeBatch|openAddSearch|triggerCheck|toggleMonitoring|requestItemAI|refreshItemDetails)/i.test(button.getAttribute('onclick') || '')) {
+      button.disabled = true;
+      button.title = 'Просмотр: изменение данных недоступно';
+    }
+  });
+  protect();
+  new MutationObserver(protect).observe(document.body, {childList:true,subtree:true});
+});
+function htmlText(value) {
+  return String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[char]));
+}
+function safeResourceUrl(value, fallback = '#') {
+  try {
+    const url = new URL(value, location.origin);
+    return ['http:', 'https:'].includes(url.protocol) ? htmlText(url.href) : fallback;
+  } catch { return fallback; }
+}
+window.fetch = (input, options = {}) => {
+  const request = input instanceof Request ? input : null;
+  const url = new URL(request ? request.url : String(input), location.href);
+  const method = String(options.method || (request && request.method) || 'GET').toUpperCase();
+  if (url.origin === location.origin && !['GET', 'HEAD', 'OPTIONS'].includes(method)) {
+    const headers = new Headers(options.headers || (request && request.headers));
+    const token = document.cookie.split('; ').find(value => value.startsWith('avito_csrf='));
+    if (token) headers.set('X-CSRF-Token', decodeURIComponent(token.slice('avito_csrf='.length)));
+    options = {...options, headers};
+  }
+  return nativeFetch(input, options);
+};
 function escapeToastText(value) { const el = document.createElement("span"); el.textContent = String(value); return el.innerHTML; }
 // Avito Parser Pro - Core JavaScript Helpers
 

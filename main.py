@@ -147,30 +147,20 @@ async def action_console_monitor():
         else:
             return
 
-    console.print(f"[green]Запущен мониторинг {len(searches)} поисков. Нажмите Ctrl+C для остановки.[/green]\n")
+    from monitoring import monitor_service
+    from outbox import outbox_worker
+    console.print("[green]Общий мониторинг запущен. Ctrl+C — остановка.[/green]")
+    delivery_task = asyncio.create_task(outbox_worker.run())
+    await monitor_service.start()
     try:
-        while True:
-            for s in searches:
-                console.print(f"[dim]Проверка поиска:[/dim] [bold]{s.name}[/bold]")
-                res = await browser_engine.parse_search(s.url, max_pages=1)
-                if res.items:
-                    save_res = await db.save_items(res.items)
-                    if save_res["new_count"] > 0:
-                        console.print(f"[bold green]🆕 Найдено новых объявлений: {save_res['new_count']}[/bold green]")
-                        for it in save_res["new_items"][:5]:
-                            console.print(f"   • [white]{it.title}[/white] — [green]{it.price} ₽[/green] ({it.url})")
-                    if save_res["price_drop_count"] > 0:
-                        console.print(f"[bold yellow]📉 Снижение цен: {save_res['price_drop_count']}[/bold yellow]")
-                        for ch in save_res["price_changes"]:
-                            console.print(f"   • [white]{ch.item_title}[/white] подешевело на [bold green]{abs(ch.delta)} ₽[/bold green] (новая цена {ch.new_price} ₽)")
-                
-                await db.update_search_last_checked(s.id)
-                await asyncio.sleep(5)
-
-            console.print(f"[dim]Следующая итерация через {config.telegram.notification_interval_min} мин...[/dim]")
-            await asyncio.sleep(config.telegram.notification_interval_min * 60)
-    except KeyboardInterrupt:
-        console.print("\n[yellow]Мониторинг остановлен пользователем.[/yellow]")
+        await asyncio.Event().wait()
+    finally:
+        delivery_task.cancel()
+        try:
+            await delivery_task
+        except asyncio.CancelledError:
+            pass
+        await monitor_service.stop()
 
 
 async def action_export_db():

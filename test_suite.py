@@ -108,7 +108,7 @@ async def run_tests():
         # Тест очистки цен
         assert AvitoDataExtractor.clean_price(" 1 250 000  ₽ ") == 1250000
         assert AvitoDataExtractor.clean_price("от 500 ₽/сут.") == 500
-        assert AvitoDataExtractor.clean_price("Бесплатно") is None
+        assert AvitoDataExtractor.clean_price("Бесплатно") == 0
         print("   ✓ Хелпер очистки цен: OK")
 
         # 4. Тест экспорта в Excel, CSV, JSON

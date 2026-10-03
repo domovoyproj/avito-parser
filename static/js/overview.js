@@ -94,8 +94,8 @@
       text('overview-updated', loaded ? 'Показаны последние полученные данные. Соединение прервано.' : 'Данные пока недоступны.');
     } finally {
       loading = false;
-      byId('overview-toggle').disabled = !loaded || acting;
-      byId('overview-check').disabled = !loaded || acting || !activeSearches;
+      byId('overview-toggle').disabled = !canMutate() || !loaded || acting;
+      byId('overview-check').disabled = !canMutate() || !loaded || acting || !activeSearches;
     }
   }
   async function action(path, message) {
@@ -109,8 +109,8 @@
     } catch (error) { showToast(error.message, 'error'); }
     finally {
       acting = false;
-      byId('overview-toggle').disabled = !loaded;
-      byId('overview-check').disabled = !loaded || !activeSearches;
+      byId('overview-toggle').disabled = !canMutate() || !loaded;
+      byId('overview-check').disabled = !canMutate() || !loaded || !activeSearches;
     }
   }
   byId('overview-toggle').addEventListener('click', () => action('/api/monitoring/toggle', 'Состояние мониторинга изменено'));

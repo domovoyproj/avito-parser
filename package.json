@@ -1,0 +1,10 @@
+{
+  "name": "avito-parser-ui",
+  "private": true,
+  "scripts": {
+    "build:css": "tailwindcss -c tailwind.config.cjs -i static/css/tailwind-input.css -o static/css/tailwind.css --minify",
+    "build": "npm run build:css && node tools/vendor-ui.cjs"
+  },
+  "devDependencies": {"tailwindcss": "3.4.17"},
+  "dependencies": {"lucide": "1.50.0", "chart.js": "4.5.1"}
+}

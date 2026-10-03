@@ -1,0 +1,33 @@
+{% extends 'base.html' %}
+{% block title %}Экспорты{% endblock %}
+{% block content %}
+<div class="workspace-overview">
+  <div class="section-heading"><div><h1>Ваши экспорты</h1><p class="workspace-muted">Большие файлы готовятся в фоне. Вернуться за результатом можно позже.</p></div><a href="/items" class="workspace-btn">В каталог</a></div>
+  <div id="export-jobs" class="workspace-panel" role="status" aria-live="polite">Загружаем задания…</div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+async function refreshExports() {
+  const root = document.getElementById('export-jobs');
+  try {
+    const data = await apiFetch('/api/export-jobs');
+    root.replaceChildren();
+    if (!data.jobs.length) { root.textContent = 'Экспортов пока нет. Выберите CSV или Excel в каталоге.'; return; }
+    const statuses = {pending:'В очереди', running:'Готовится', completed:'Готов', failed:'Не удалось создать'};
+    for (const job of data.jobs) {
+      const row = document.createElement('div'); row.className = 'section-heading';
+      const info = document.createElement('span');
+      info.textContent = `${new Date(job.created_at * 1000).toLocaleString('ru-RU')} · ${job.format.toUpperCase()} · ${statuses[job.status] || job.status} · ${job.rows_written} строк`;
+      row.append(info);
+      if (job.status === 'completed') {
+        const link = document.createElement('a'); link.className = 'workspace-btn'; link.textContent = 'Скачать';
+        link.href = `/api/export-jobs/${encodeURIComponent(job.id)}/download`; row.append(link);
+      }
+      root.append(row);
+    }
+  } catch { root.textContent = 'Не удалось загрузить экспорты. Повторим через несколько секунд.'; }
+}
+refreshExports(); setInterval(refreshExports, 5000);
+</script>
+{% endblock %}

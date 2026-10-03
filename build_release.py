@@ -15,6 +15,11 @@ DIST_DIR = PROJECT_DIR / "dist"
 
 # Файлы и папки для включения в релиз
 INCLUDE_PATTERNS = [
+    "routers", "repositories", "docs",
+    "auth_dependencies.py", "dependencies.py", "coordination.py", "monitoring.py",
+    "notifications.py", "outbox.py", "observability.py", "security.py",
+    "parse_outcomes.py", "parser_jobs.py", "llm_store.py", "export_jobs.py",
+    "streaming_export.py", "setup_admin.py", "manage_db.py", "constraints.txt",
     "static",
     "templates",
     "ai_scoring.py",
@@ -44,11 +49,13 @@ INCLUDE_PATTERNS = [
 ]
 
 # Исключения
-EXCLUDE_EXTENSIONS = {".pyc", ".pyo", ".pyd", ".db", ".sqlite", ".log", ".tmp"}
+EXCLUDE_EXTENSIONS = {".pyc", ".pyo", ".pyd", ".db", ".sqlite", ".log", ".tmp", ".part"}
 EXCLUDE_DIRS = {"__pycache__", ".git", "venv", "env", ".idea", ".vscode", "dist"}
 
 
 def should_include(path: Path) -> bool:
+    if path.name == '.env' or path.name.endswith(('-wal', '-shm')):
+        return False
     for part in path.parts:
         if part in EXCLUDE_DIRS:
             return False
@@ -68,7 +75,7 @@ def build_releases():
         for item_name in INCLUDE_PATTERNS:
             item_path = PROJECT_DIR / item_name
             if not item_path.exists():
-                continue
+                raise FileNotFoundError(f"Missing release file: {item_name}")
             if item_path.is_file():
                 zipf.write(item_path, arcname=f"avito_parser/{item_name}")
             elif item_path.is_dir():
@@ -92,7 +99,7 @@ def build_releases():
         for item_name in INCLUDE_PATTERNS:
             item_path = PROJECT_DIR / item_name
             if not item_path.exists():
-                continue
+                raise FileNotFoundError(f"Missing release file: {item_name}")
             if item_path.is_file():
                 tar.add(item_path, arcname=f"avito_parser/{item_name}")
             elif item_path.is_dir():
