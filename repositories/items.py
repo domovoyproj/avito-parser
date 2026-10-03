@@ -243,6 +243,8 @@ class ItemsRepository:
                         "INSERT OR IGNORE INTO notification_outbox(event_key, channel, destination, payload, created_at) VALUES (?, 'webhook', ?, ?, ?)",
                         (f"{event}:webhook", webhook[0], payload, now.timestamp()),
                     )
+                if is_price_drop and item.price is not None and config.telegram.bot_token:
+                    await self.enqueue_watchlist_alerts(db, item, item.price, json.loads(payload), now.timestamp())
             await db.commit()
         return item, is_new, is_price_drop, prev_price
 
@@ -342,6 +344,7 @@ class ItemsRepository:
         sort_by: str = "newest",
         limit: int = 50,
         offset: int = 0,
+        user_id: Optional[int] = None,
     ) -> Tuple[List[AvitoItem], int]:
         """
         Расширенное получение списка объявлений с пагинацией, подсчетом общего количества и сортировкой.
@@ -360,7 +363,11 @@ class ItemsRepository:
             where_clauses.append("(is_reserved = 0 OR is_reserved IS NULL)")
 
         if favorites_only:
-            where_clauses.append("is_favorite = 1")
+            if user_id is None:
+                where_clauses.append("is_favorite = 1")
+            else:
+                where_clauses.append("EXISTS (SELECT 1 FROM watchlist_items wi JOIN watchlists w ON w.id=wi.watchlist_id WHERE wi.item_id=items.id AND w.user_id=? AND w.is_default=1)")
+                params.append(user_id)
 
         if gems_only:
             where_clauses.append("deal_grade = 'GEM'")
@@ -447,6 +454,11 @@ class ItemsRepository:
 
             for row in rows:
                 items.append(self._row_to_item(row))
+
+        if user_id is not None and items:
+            favorites = await self.personal_favorite_ids(user_id, [item.id for item in items])
+            for item in items:
+                item.is_favorite = item.id in favorites
 
         return items, total_count
 

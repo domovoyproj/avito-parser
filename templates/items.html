@@ -273,11 +273,26 @@
         <button onclick="toggleModalFavorite()" id="btn-modal-favorite" class="p-1.5 rounded bg-slate-900 text-slate-400 hover:text-amber-400 border border-white/[0.06] transition" title="В избранное">
           <i data-lucide="star" class="w-4 h-4"></i>
         </button>
+        <a href="/watchlists" class="text-[11px] text-blue-300 hover:underline whitespace-nowrap">Мои списки</a>
         <button onclick="closeItemModal()" class="text-slate-400 hover:text-white transition flex-shrink-0 p-1">
           <i data-lucide="x" class="w-4 h-4"></i>
         </button>
       </div>
     </div>
+
+    <section class="rounded-lg border border-white/[0.08] bg-slate-900/50 p-3 space-y-2" aria-labelledby="item-watch-title">
+      <h4 id="item-watch-title" class="text-xs font-semibold text-white">Наблюдение за ценой</h4>
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+        <select id="item-watchlist-select" class="app-input px-2 py-1.5 text-xs" aria-label="Список наблюдения" onchange="loadItemWatchState()"><option value="">Загрузка списков…</option></select>
+        <input id="item-watch-target" type="number" min="0" max="1000000000" class="app-input px-2 py-1.5 text-xs" placeholder="Целевая цена, ₽" aria-label="Целевая цена" {% if user.role == 'viewer' %}disabled{% endif %}>
+        <input id="item-watch-note" maxlength="1000" class="app-input px-2 py-1.5 text-xs" placeholder="Заметка" aria-label="Заметка" {% if user.role == 'viewer' %}disabled{% endif %}>
+      </div>
+      <label class="inline-flex items-center gap-2 text-xs text-slate-300"><input id="item-watch-paused" type="checkbox" {% if user.role == 'viewer' %}disabled{% endif %}>Приостановить оповещения для объявления</label>
+      <div class="flex items-center gap-3">
+        {% if user.role != 'viewer' %}<button id="item-watch-save" type="button" onclick="saveItemWatchState()" class="px-3 py-1.5 rounded bg-blue-600 text-white text-xs disabled:opacity-30" disabled>Сохранить в список</button>{% endif %}
+        <span id="item-watch-status" class="text-xs text-slate-400" aria-live="polite"></span>
+      </div>
+    </section>
 
     <!-- Gallery & Price -->
     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -410,6 +425,7 @@ let totalPages = 1;
 let currentViewMode = 'grid';
 let debounceTimer = null;
 let currentViewingItemId = null;
+let watchStateRequest = 0;
 let selectedItemIds = new Set();
 let currentItemsMap = new Map();
 
@@ -785,9 +801,11 @@ function changePage(delta) {
 
 async function openItemModal(itemId) {
   currentViewingItemId = itemId;
+  watchStateRequest++;
   try {
     const data = await apiFetch(`/api/items/${itemId}`);
     const item = data.item;
+    loadItemWatchlists();
 
     document.getElementById('modal-item-id').innerText = `ID: ${item.id}`;
     document.getElementById('modal-item-title').innerText = item.title;
@@ -903,6 +921,65 @@ async function openItemModal(itemId) {
   } catch (err) {
     showToast(err.message, 'error');
   }
+}
+
+async function loadItemWatchlists() {
+  const select = document.getElementById('item-watchlist-select');
+  const status = document.getElementById('item-watch-status');
+  status.textContent = 'Загрузка…';
+  try {
+    const lists = await apiFetch('/api/watchlists');
+    select.replaceChildren();
+    lists.forEach(list => select.add(new Option(list.name, String(list.id))));
+    await loadItemWatchState();
+  } catch (error) { status.textContent = 'Не удалось загрузить списки.'; }
+}
+
+async function loadItemWatchState() {
+  const request = ++watchStateRequest;
+  const listId = document.getElementById('item-watchlist-select').value;
+  if (!listId || !currentViewingItemId) return;
+  const status = document.getElementById('item-watch-status');
+  const target = document.getElementById('item-watch-target');
+  const note = document.getElementById('item-watch-note');
+  const paused = document.getElementById('item-watch-paused');
+  const save = document.getElementById('item-watch-save');
+  target.disabled = true;
+  note.disabled = true;
+  paused.disabled = true;
+  if (save) save.disabled = true;
+  status.textContent = 'Загрузка…';
+  try {
+    const items = await apiFetch(`/api/watchlists/${listId}/items`);
+    if (request !== watchStateRequest) return;
+    const entry = items.find(item => item.item_id === String(currentViewingItemId));
+    target.value = entry?.target_price ?? '';
+    note.value = entry?.note ?? '';
+    paused.checked = !!entry?.alerts_paused;
+    status.textContent = entry ? (entry.alerts_paused ? 'Оповещения для объявления на паузе.' : entry.target_price == null ? 'Объявление сохранено без ценового алерта.' : `Оповещение при цене ${Number(entry.target_price).toLocaleString('ru-RU')} ₽ или ниже.`) : 'В этом списке объявления пока нет.';
+  } catch (error) { status.textContent = 'Не удалось загрузить настройки. Повторите выбор списка.'; }
+  finally {
+    if (request !== watchStateRequest) return;
+    {% if user.role != 'viewer' %}
+    target.disabled = false;
+    note.disabled = false;
+    paused.disabled = false;
+    if (save) save.disabled = false;
+    {% endif %}
+  }
+}
+
+async function saveItemWatchState() {
+  const listId = document.getElementById('item-watchlist-select').value;
+  if (!listId || !currentViewingItemId) return;
+  const value = document.getElementById('item-watch-target').value;
+  const note = document.getElementById('item-watch-note').value;
+  const alertsPaused = document.getElementById('item-watch-paused').checked;
+  try {
+    await apiFetch(`/api/watchlists/${listId}/items/${encodeURIComponent(currentViewingItemId)}`, {method: 'PUT', body: JSON.stringify({target_price: value === '' ? null : Number(value), note, alerts_paused: alertsPaused})});
+    await loadItemWatchState();
+    showToast('Настройки наблюдения сохранены', 'success');
+  } catch (error) { showToast(error.message, 'error'); }
 }
 
 async function requestItemAISummary() {

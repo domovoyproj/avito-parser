@@ -20,7 +20,7 @@ async def run(destination):
         await page.wait_for_url('http://127.0.0.1:18765/')
         for width in (1440, 768, 360):
             await page.set_viewport_size({'width': width, 'height': 1000})
-            for path, name in (('/', 'dashboard'), ('/items', 'catalog'), ('/monitoring', 'monitoring'),
+            for path, name in (('/', 'dashboard'), ('/items', 'catalog'), ('/watchlists', 'watchlists'), ('/monitoring', 'monitoring'),
                                ('/settings', 'settings'), ('/parser', 'parser'), ('/logs', 'logs'), ('/exports', 'exports'),
                                ('/item-parser','item-parser'), ('/price-drops','price-drops'), ('/proxies','proxies'), ('/admin/users','users')):
                 await page.goto('http://127.0.0.1:18765' + path)
@@ -55,6 +55,28 @@ async def run(destination):
         await page.wait_for_function("document.querySelectorAll('.product-card').length === 1")
         await page.uncheck('#filter-favorites-only')
         await page.wait_for_function("document.querySelectorAll('.product-card').length === 24")
+        await page.goto('http://127.0.0.1:18765/watchlists')
+        await page.wait_for_selector('[data-watchlist-select]')
+        await page.fill('#new-watchlist-name', 'Покупки до 40 тысяч')
+        await page.click('#create-watchlist-form button')
+        await page.get_by_text('Покупки до 40 тысяч', exact=False).first.wait_for()
+        await page.goto('http://127.0.0.1:18765/items')
+        await page.wait_for_selector('.product-card')
+        await page.locator('button[onclick^="openItemModal"]').first.click()
+        await page.wait_for_selector('#item-modal:not(.hidden)')
+        await page.select_option('#item-watchlist-select', label='Покупки до 40 тысяч')
+        await page.wait_for_function("!document.getElementById('item-watch-save').disabled")
+        await page.fill('#item-watch-target', '40000')
+        await page.fill('#item-watch-note', 'Проверить комплект')
+        await page.click('button[onclick="saveItemWatchState()"]')
+        await page.wait_for_function("document.getElementById('item-watch-status').textContent.replace(/\\s/g, '').includes('40000')")
+        await page.keyboard.press('Escape')
+        await page.goto('http://127.0.0.1:18765/watchlists')
+        await page.wait_for_selector('[data-watchlist-select]')
+        await page.get_by_text('Покупки до 40 тысяч', exact=False).first.click()
+        await page.get_by_text('Проверить комплект').wait_for()
+        await page.goto('http://127.0.0.1:18765/items')
+        await page.wait_for_selector('.product-card')
         async with page.expect_download() as download:
             await page.click('button[onclick="exportData(\'csv\')"]')
         assert (await download.value).suggested_filename.endswith('.csv')
@@ -107,10 +129,12 @@ async def run(destination):
                 await role_page.goto('http://127.0.0.1:18765/items')
                 await role_page.wait_for_selector('.product-card')
                 assert await role_page.locator('button[onclick^="toggleFavorite"]').first.is_disabled()
+                await role_page.goto('http://127.0.0.1:18765/watchlists')
+                assert await role_page.locator('#create-watchlist-form').count() == 0
             await context.close()
         assert not errors, errors
         await browser.close()
-    print('PASS: 11 responsive screens, themes, dialogs, search, favorite, export, error/retry, XSS text, roles; no browser errors')
+    print('PASS: 12 responsive screens, watchlists, themes, dialogs, search, favorite, export, error/retry, XSS text, roles; no browser errors')
 
 
 if __name__ == '__main__':

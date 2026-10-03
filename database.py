@@ -32,9 +32,10 @@ from repositories.searches import SearchesRepository
 from repositories.settings import SettingsRepository
 from repositories.analytics import AnalyticsRepository
 from repositories.monitoring_runs import MonitoringRunsRepository
+from repositories.watchlists import WatchlistsRepository
 
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 
 
 class Database(
@@ -44,6 +45,7 @@ class Database(
     SettingsRepository,
     AnalyticsRepository,
     MonitoringRunsRepository,
+    WatchlistsRepository,
 ):
     def __init__(self, db_path: Optional[Path] = None):
         self.db_path = db_path or config.db_path
@@ -80,10 +82,12 @@ class Database(
                     "SELECT 1 FROM sqlite_master WHERE type='table' AND name='schema_migrations'"
                 )
             ).fetchone()
+            old_version = 0
             if exists:
                 version = await (
                     await db.execute("SELECT MAX(version) FROM schema_migrations")
                 ).fetchone()
+                old_version = int(version[0] or 0) if version else 0
                 if version and version[0] and version[0] > SCHEMA_VERSION:
                     raise ValueError("Database schema is newer than this application")
             await db.execute("PRAGMA journal_mode=WAL")
@@ -432,6 +436,15 @@ class Database(
             )
             await db.execute("CREATE INDEX IF NOT EXISTS idx_monitoring_runs_time ON monitoring_runs(started_at DESC)")
             await db.execute("CREATE INDEX IF NOT EXISTS idx_monitoring_runs_search_time ON monitoring_runs(search_id, started_at DESC)")
+            await db.execute("CREATE TABLE IF NOT EXISTS watchlists (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, name TEXT NOT NULL, is_default INTEGER NOT NULL DEFAULT 0, alerts_paused INTEGER NOT NULL DEFAULT 0, created_at REAL NOT NULL, UNIQUE(user_id,name))")
+            await db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_watchlists_default ON watchlists(user_id) WHERE is_default=1")
+            await db.execute("CREATE TABLE IF NOT EXISTS watchlist_items (watchlist_id INTEGER NOT NULL REFERENCES watchlists(id) ON DELETE CASCADE, item_id TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE, target_price INTEGER, note TEXT NOT NULL DEFAULT '', alerts_paused INTEGER NOT NULL DEFAULT 0, created_at REAL NOT NULL, PRIMARY KEY(watchlist_id,item_id))")
+            await db.execute("CREATE INDEX IF NOT EXISTS idx_watchlist_items_item ON watchlist_items(item_id)")
+            await db.execute("CREATE TABLE IF NOT EXISTS telegram_link_challenges (code_hash TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, expires_at REAL NOT NULL)")
+            await db.execute("CREATE TABLE IF NOT EXISTS user_telegram_chats (user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, chat_id INTEGER NOT NULL UNIQUE, created_at REAL NOT NULL, PRIMARY KEY(user_id,chat_id))")
+            if old_version < 8:
+                await db.execute("INSERT OR IGNORE INTO watchlists(user_id,name,is_default,created_at) SELECT id,'Избранное',1,strftime('%s','now') FROM users")
+                await db.execute("INSERT OR IGNORE INTO watchlist_items(watchlist_id,item_id,created_at) SELECT w.id,i.id,strftime('%s','now') FROM watchlists w JOIN items i ON i.is_favorite=1 WHERE w.is_default=1")
             for version in range(1, SCHEMA_VERSION + 1):
                 await db.execute(
                     "INSERT OR IGNORE INTO schema_migrations VALUES (?, ?)",

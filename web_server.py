@@ -249,6 +249,10 @@ async def page_monitoring(request: Request):
 async def page_items(request: Request):
     return await render_auth_page("items")(request)
 
+@app.get("/watchlists", response_class=HTMLResponse)
+async def page_watchlists(request: Request):
+    return await render_auth_page("watchlists")(request)
+
 
 @app.get('/exports', response_class=HTMLResponse)
 async def page_exports(request: Request):
@@ -294,6 +298,8 @@ from routers.searches import router as searches_router
 app.include_router(searches_router)
 from routers.monitoring import router as monitoring_router
 app.include_router(monitoring_router)
+from routers.watchlists import router as watchlists_router
+app.include_router(watchlists_router)
 
 from routers.parser import router as parser_router, ws_parser, ParseSearchRequest, ParseItemRequest
 app.include_router(parser_router)

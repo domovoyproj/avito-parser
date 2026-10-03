@@ -107,6 +107,9 @@
         <i data-lucide="trending-down" class="w-4 h-4 text-emerald-400"></i>
         <span>Падения цен</span>
       </a>
+      <a href="/watchlists" class="nav-item {% if page == 'watchlists' %}active{% endif %}">
+        <i data-lucide="bookmark" class="w-4 h-4 text-amber-400"></i><span>Мои списки</span>
+      </a>
       <a href="/exports" class="nav-item {% if page == 'exports' %}active{% endif %}"><i data-lucide="download" class="w-4 h-4"></i><span>Готовые экспорты</span></a>
 
       {% if user and user.role == 'admin' %}

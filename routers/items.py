@@ -15,7 +15,7 @@ from proxy_manager import proxy_manager
 from ai_scoring import deal_scoring_engine
 from monitoring import monitor_service
 from security import avito_url
-from auth_dependencies import require_admin
+from auth_dependencies import require_admin, require_auth
 from dependencies import get_database, get_monitoring_service
 
 router = APIRouter()
@@ -40,6 +40,7 @@ async def api_get_items(
     min_deal_score: Optional[int] = None,
     sort_by: str = "newest",
     db: Database = Depends(get_database),
+    user: User = Depends(require_auth),
 ):
     offset = (page - 1) * page_size
     items, total_count = await db.get_items_filtered(
@@ -58,6 +59,7 @@ async def api_get_items(
         sort_by=sort_by,
         limit=page_size,
         offset=offset,
+        user_id=user.id,
     )
     total_pages = (total_count + page_size - 1) // page_size if total_count > 0 else 1
     return {
@@ -151,10 +153,11 @@ async def api_evaluate_item_ai(
 
 
 @router.get("/api/items/{item_id}")
-async def api_get_item(item_id: str, db: Database = Depends(get_database)):
+async def api_get_item(item_id: str, db: Database = Depends(get_database), user: User = Depends(require_auth)):
     item = await db.get_item_by_id(item_id)
     if not item:
         raise HTTPException(status_code=404, detail="Объявление не найдено")
+    item.is_favorite = item_id in await db.personal_favorite_ids(user.id, [item_id])
     history = await db.get_price_history(item_id=item_id)
     return {"item": item.model_dump(mode="json"), "price_history": history}
 
@@ -211,15 +214,20 @@ class BatchDeleteRequest(BaseModel):
 
 @router.post("/api/items/batch-action")
 async def api_batch_action_items(
-    req: BatchActionRequest, db: Database = Depends(get_database)
+    req: BatchActionRequest, db: Database = Depends(get_database), user: User = Depends(require_auth)
 ):
-    count = await db.batch_process_items(req.item_ids, req.action, req.search_query_id)
+    if req.action in ("favorite", "unfavorite"):
+        count = await db.set_personal_favorites(user.id, req.item_ids, req.action == "favorite")
+    else:
+        count = await db.batch_process_items(req.item_ids, req.action, req.search_query_id)
     return {"status": "success", "processed_count": count}
 
 
 @router.post("/api/items/{item_id}/favorite")
-async def api_toggle_item_favorite(item_id: str, db: Database = Depends(get_database)):
-    is_fav = await db.toggle_item_favorite(item_id)
+async def api_toggle_item_favorite(item_id: str, db: Database = Depends(get_database), user: User = Depends(require_auth)):
+    if not await db.get_item_by_id(item_id):
+        raise HTTPException(status_code=404, detail="Объявление не найдено")
+    is_fav = await db.toggle_personal_favorite(user.id, item_id)
     return {"status": "success", "is_favorite": is_fav}
 
 
