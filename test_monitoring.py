@@ -110,6 +110,33 @@ class MonitoringTests(unittest.IsolatedAsyncioTestCase):
             cleanup.assert_not_awaited()
         self.assertIsNotNone((await self.db.get_search_by_id(search.id)).last_checked_at)
 
+    async def test_monitoring_history_survives_restart_filters_and_is_idempotent(self):
+        search_id = await self.db.add_search(SearchQuery(name='История', url='https://www.avito.ru/fixture'))
+        search = await self.db.get_search_by_id(search_id)
+        service = MonitoringService()
+        with patch.object(monitoring.http_engine, 'parse_search', AsyncMock(return_value=ParseResult(outcome='empty'))):
+            self.assertEqual((await service.check_search(search))['outcome'], 'empty')
+        runs = await self.db.get_monitoring_runs(search_id=search_id, outcome='empty')
+        self.assertEqual(len(runs), 1)
+        self.assertEqual(runs[0]['engine'], 'http')
+        self.assertEqual(runs[0]['search_name'], 'История')
+        self.assertEqual((await self.db.get_monitoring_run_stats())['outcomes']['empty'], 1)
+        await self.db.record_monitoring_run(runs[0])
+        self.assertEqual(len(await self.db.get_monitoring_runs()), 1)
+        from database import Database
+        restarted = Database(self.db.db_path)
+        self.assertEqual((await restarted.get_monitoring_runs())[0]['run_id'], runs[0]['run_id'])
+
+    async def test_monitoring_history_records_blocked_and_does_not_close_items(self):
+        search_id = await self.db.add_search(SearchQuery(name='Blocked', url='https://www.avito.ru/fixture'))
+        search = await self.db.get_search_by_id(search_id)
+        with patch.object(monitoring.http_engine, 'parse_search', AsyncMock(return_value=ParseResult(outcome='blocked'))), \
+             patch.object(db, 'cleanup_stale_items', AsyncMock()) as cleanup:
+            result = await MonitoringService().check_search(search)
+            cleanup.assert_not_awaited()
+        self.assertEqual(result['outcome'], 'blocked')
+        self.assertEqual((await self.db.get_monitoring_runs(outcome='blocked'))[0]['search_id'], search_id)
+
     async def test_outbox_commit_per_recipient_retry_and_delivery(self):
         settings = config.config.telegram.model_copy(deep=True)
         settings.bot_token = 'fixture-only'

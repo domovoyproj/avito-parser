@@ -40,6 +40,20 @@ async def api_monitoring_status(
     }
 
 
+@router.get("/api/monitoring/runs")
+async def api_monitoring_runs(
+    search_id: Optional[int] = Query(default=None, ge=1),
+    outcome: Optional[str] = Query(default=None, pattern="^(success|empty|partial|blocked|error|skipped)$"),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    db: Database = Depends(get_database),
+):
+    return {
+        "runs": await db.get_monitoring_runs(search_id, outcome, limit, offset),
+        "stats": await db.get_monitoring_run_stats(),
+    }
+
+
 @router.post("/api/monitoring/toggle")
 async def api_monitoring_toggle(
     db: Database = Depends(get_database),

@@ -5,6 +5,8 @@ import json
 import logging
 import hashlib
 import hmac
+import time
+import uuid
 from datetime import datetime, timedelta
 from typing import Any, Dict, Optional
 import httpx
@@ -54,14 +56,46 @@ class MonitoringService:
 
     @observed('search')
     async def check_search(self, search):
+        started_at = time.time()
+        started_clock = time.monotonic()
+        result = {"new": 0, "drops": 0, "skipped": 1, "outcome": "skipped"}
+        error_type = None
         lock = self._search_locks.setdefault(search.id, asyncio.Lock())
-        if lock.locked():
-            return {"new": 0, "drops": 0, "skipped": 1}
-        async with lock:
-            async with lease(f"search:{search.id}") as acquired:
-                if not acquired:
-                    return {"new": 0, "drops": 0, "skipped": 1}
-                return await asyncio.wait_for(self._check_search(search), timeout=180)
+        try:
+            if not lock.locked():
+                async with lock:
+                    async with lease(f"search:{search.id}") as acquired:
+                        if acquired:
+                            result = await asyncio.wait_for(self._check_search(search), timeout=180)
+            return result
+        except asyncio.CancelledError:
+            error_type = "CancelledError"
+            result = {"new": 0, "drops": 0, "errors": 1, "outcome": "error"}
+            raise
+        except Exception as exc:
+            error_type = type(exc).__name__
+            result = {"new": 0, "drops": 0, "errors": 1, "outcome": "error"}
+            logger.error("Проверка поиска #%s завершилась: %s", search.id, error_type)
+            return result
+        finally:
+            record = {
+                "run_id": uuid.uuid4().hex,
+                "search_id": search.id,
+                "search_name": search.name,
+                "started_at": started_at,
+                "finished_at": time.time(),
+                "duration_seconds": max(0, time.monotonic() - started_clock),
+                "outcome": result.get("outcome", "error"),
+                "engine": result.get("engine"),
+                "found_count": result.get("found", 0),
+                "new_count": result.get("new", 0),
+                "drops_count": result.get("drops", 0),
+                "error_type": error_type or result.get("error_type"),
+            }
+            try:
+                await db.record_monitoring_run(record)
+            except Exception:
+                logger.exception("Не удалось сохранить историю проверки поиска #%s", search.id)
 
     async def _check_search(self, search: SearchQuery) -> Dict[str, int]:
         """Проверка одного поискового запроса"""
@@ -72,11 +106,11 @@ class MonitoringService:
         if start < end:
             if now_hour < start or now_hour >= end:
                 logger.info(f"⏸ Поиск '{search.name}' вне активных часов ({start}:00-{end}:00), пропуск")
-                return {'new': 0, 'drops': 0}
+                return {'new': 0, 'drops': 0, 'skipped': 1, 'outcome': 'skipped'}
         else:  # ночное расписание, например 22-8
             if end <= now_hour < start:
                 logger.info(f"⏸ Поиск '{search.name}' вне активных часов ({start}:00-{end}:00), пропуск")
-                return {'new': 0, 'drops': 0}
+                return {'new': 0, 'drops': 0, 'skipped': 1, 'outcome': 'skipped'}
 
         self.current_checking = search.name
         logger.info(f"🔎 Мониторинг: проверка поиска #{search.id} '{search.name}'...")
@@ -94,12 +128,15 @@ class MonitoringService:
                 result = None
 
             if result and result.outcome == "blocked":
-                return {"new": 0, "drops": 0, "errors": 1}
+                return {"new": 0, "drops": 0, "errors": 1, "outcome": "blocked", "engine": "http"}
             if not result or (not result.items and result.outcome != 'empty'):
                 engine_used = "browser"
                 result = await browser_engine.parse_search(search.url, max_pages=1)
 
             logger.info(f"⚙️ Поиск '{search.name}': использован {engine_used}-движок")
+
+            if result.outcome in ("blocked", "error"):
+                return {"new": 0, "drops": 0, "errors": 1, "outcome": result.outcome, "engine": engine_used}
 
             if result.items:
                 # Привязываем search_query_id
@@ -129,13 +166,13 @@ class MonitoringService:
 
         except Exception as e:
             logger.error(f"Ошибка при проверке поиска #{search.id}: {type(e).__name__}")
-            return {"new": new_count, "drops": drop_count, "errors": 1}
+            return {"new": new_count, "drops": drop_count, "errors": 1, "outcome": "error", "error_type": type(e).__name__}
         finally:
             self.current_checking = None
             if search.id is not None:
                 await db.update_search_last_checked(search.id)
 
-        return {"new": new_count, "drops": drop_count}
+        return {"new": new_count, "drops": drop_count, "found": len(result.items), "outcome": result.outcome, "engine": engine_used}
 
     @observed('monitoring-cycle')
     async def run_all_now(self, due_only=False):

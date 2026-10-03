@@ -87,6 +87,28 @@
     </div>
   </div>
 
+  <section class="panel-card p-4 space-y-3" aria-labelledby="run-history-title">
+    <div class="flex flex-wrap items-center justify-between gap-3 border-b border-white/[0.06] pb-3">
+      <div>
+        <h2 id="run-history-title" class="text-sm font-bold text-white">История проверок</h2>
+        <p class="text-xs text-slate-400">Результаты поисков за последние 30 дней</p>
+      </div>
+      <div class="flex flex-wrap gap-2">
+        <select id="run-search-filter" aria-label="Фильтр по задаче" class="app-input px-2 py-1.5 text-xs" onchange="loadMonitoringRuns()"><option value="">Все задачи</option></select>
+        <select id="run-outcome-filter" aria-label="Фильтр по результату" class="app-input px-2 py-1.5 text-xs" onchange="loadMonitoringRuns()">
+          <option value="">Все результаты</option><option value="success">Успешно</option><option value="empty">Пусто</option><option value="partial">Частично</option><option value="blocked">Заблокировано</option><option value="error">Ошибка</option><option value="skipped">Пропущено</option>
+        </select>
+      </div>
+    </div>
+    <div id="run-summary" class="text-xs text-slate-400" aria-live="polite"></div>
+    <div class="overflow-x-auto">
+      <table class="w-full text-left text-xs">
+        <thead><tr class="text-slate-500 border-b border-white/[0.06]"><th class="p-2">Время</th><th class="p-2">Задача</th><th class="p-2">Результат</th><th class="p-2">Движок</th><th class="p-2">Найдено / новые / скидки</th><th class="p-2">Длительность</th></tr></thead>
+        <tbody id="run-history-body"><tr><td colspan="6" class="p-5 text-center text-slate-400">Загрузка истории…</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+
 </div>
 
 <!-- ADD / EDIT SEARCH MODAL -->
@@ -221,9 +243,69 @@ async function loadMonitoringPage() {
     if (badge) badge.innerText = `${searchesList.length} задач`;
 
     renderSearchesTable();
+    updateRunSearchFilter();
+    loadMonitoringRuns();
 
   } catch (err) {
     console.error('Error loading monitoring page:', err);
+  }
+}
+
+function updateRunSearchFilter() {
+  const filter = document.getElementById('run-search-filter');
+  const selected = filter.value;
+  filter.replaceChildren(new Option('Все задачи', ''));
+  searchesList.forEach(search => filter.add(new Option(`Задача: ${search.name}`, String(search.id))));
+  filter.value = selected;
+}
+
+async function loadMonitoringRuns() {
+  const body = document.getElementById('run-history-body');
+  const summary = document.getElementById('run-summary');
+  body.innerHTML = '<tr><td colspan="6" class="p-5 text-center text-slate-400">Загрузка истории…</td></tr>';
+  const params = new URLSearchParams({ limit: '50' });
+  const searchId = document.getElementById('run-search-filter').value;
+  const outcome = document.getElementById('run-outcome-filter').value;
+  if (searchId) params.set('search_id', searchId);
+  if (outcome) params.set('outcome', outcome);
+  try {
+    const data = await apiFetch(`/api/monitoring/runs?${params}`);
+    const counts = data.stats.outcomes;
+    const total = Object.values(counts).reduce((sum, value) => sum + Number(value), 0);
+    const colors = { success: 'bg-emerald-500', empty: 'bg-slate-500', partial: 'bg-amber-500', blocked: 'bg-rose-500', error: 'bg-red-500', skipped: 'bg-blue-500' };
+    summary.replaceChildren();
+    const caption = document.createElement('p');
+    caption.textContent = `За ${data.stats.days} дней: ${total} проверок · успешных ${counts.success || 0} · ошибок ${counts.error || 0} · блокировок ${counts.blocked || 0}`;
+    summary.append(caption);
+    if (total) {
+      const bar = document.createElement('div');
+      bar.className = 'flex h-2 mt-2 overflow-hidden rounded bg-slate-800';
+      Object.entries(colors).forEach(([key, color]) => {
+        if (!counts[key]) return;
+        const segment = document.createElement('span');
+        segment.className = color;
+        segment.style.width = `${100 * counts[key] / total}%`;
+        segment.title = `${key}: ${counts[key]}`;
+        bar.append(segment);
+      });
+      summary.append(bar);
+    }
+    if (!data.runs.length) {
+      body.innerHTML = '<tr><td colspan="6" class="p-5 text-center text-slate-400">Проверок по этим фильтрам пока нет.</td></tr>';
+      return;
+    }
+    const labels = { success: 'Успешно', empty: 'Пусто', partial: 'Частично', blocked: 'Заблокировано', error: 'Ошибка', skipped: 'Пропущено' };
+    body.innerHTML = data.runs.map(run => `<tr class="border-b border-white/[0.04]">
+      <td class="p-2 whitespace-nowrap">${htmlText(new Date(run.started_at * 1000).toLocaleString('ru-RU'))}</td>
+      <td class="p-2">${htmlText(run.search_name)}</td>
+      <td class="p-2">${htmlText(labels[run.outcome] || run.outcome)}${run.error_type ? ` · ${htmlText(run.error_type)}` : ''}</td>
+      <td class="p-2 font-mono">${htmlText(run.engine || '—')}</td>
+      <td class="p-2 font-mono">${run.found_count} / ${run.new_count} / ${run.drops_count}</td>
+      <td class="p-2 font-mono">${Number(run.duration_seconds).toFixed(1)} с</td>
+    </tr>`).join('');
+  } catch (error) {
+    summary.textContent = '';
+    body.innerHTML = '<tr><td colspan="6" class="p-5 text-center text-rose-300">Не удалось загрузить историю. <button type="button" onclick="loadMonitoringRuns()" class="underline">Повторить</button></td></tr>';
   }
 }
 
@@ -261,6 +343,7 @@ function renderSearchesTable() {
       </td>
       <td class="py-3 px-3 text-[11px] text-slate-400 font-mono">
         ${formatRelativeTime(s.last_checked_at)}
+        ${s.enabled && s.last_checked_at && Date.now() - new Date(s.last_checked_at).getTime() > Math.max(10, 2 * (s.check_interval_min || 10)) * 60000 ? '<span class="block text-amber-300">Проверка задерживается</span>' : ''}
       </td>
       <td class="py-3 px-3 text-right space-x-1 whitespace-nowrap">
         <button onclick="checkSearchNow(${s.id})" title="Проверить сейчас" class="p-1.5 rounded bg-slate-900 hover:bg-slate-800 text-emerald-400 border border-white/[0.06] transition">

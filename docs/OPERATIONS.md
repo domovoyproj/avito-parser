@@ -10,6 +10,8 @@ Docker работает от UID/GID 10001. Перед `docker compose up --buil
 
 Общие lease SQLite предотвращают одновременную проверку одного поиска процессами web и bot. Уведомления фиксируются вместе с объявлением и доставляются из outbox по получателю. Доставка at-least-once: авария после успешной отправки до фиксации результата может вызвать повтор. Проверяйте статусы failed и возраст pending в notification_outbox. Retry ограничен восемью попытками, 429 откладывает отправку; quiet hours не расходуют попытки.
 
+История отдельных проверок хранится в `monitoring_runs` и доступна на странице `/monitoring` и через `GET /api/monitoring/runs`. Записи старше 30 дней удаляются при следующей записи; `run_id` исключает повторную вставку того же результата. Хранятся только тип ошибки и счётчики, без HTML страниц, cookies и токенов. Если мониторинг долго не запускается, старые записи остаются до следующей проверки.
+
 Команды проверки: `python run_offline_tests.py`, `python -m ruff check . --select E9,F63,F7,F82`, `python -m pip_audit -r constraints.txt`, `npm ci && npm run build`. UI QA: запустите `python tools/ui_fixture.py` в отдельном терминале и `python tools/ui_smoke.py --out <folder>`; используются временная БД и локальные fixture-данные.
 
 LLM cache/бюджет разделяются через SQLite: TTL 24 часа, максимум 1024 записей и 100 запросов за календарный день. Резервирование атомарное, неудачные вызовы расходуют бюджет. Метрики администратора: /api/metrics (queue age/status, jobs, cycle duration/errors, DB size). JSON logs содержат run/search IDs и redaction. Active/quiet hours и календарный бюджет используют timezone процесса; согласуйте timezone всех web/bot/CLI процессов.
