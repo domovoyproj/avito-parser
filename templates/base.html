@@ -110,6 +110,9 @@
       <a href="/watchlists" class="nav-item {% if page == 'watchlists' %}active{% endif %}">
         <i data-lucide="bookmark" class="w-4 h-4 text-amber-400"></i><span>Мои списки</span>
       </a>
+      <a href="/feedback" class="nav-item {% if page == 'feedback' %}active{% endif %}">
+        <i data-lucide="message-square-check" class="w-4 h-4 text-blue-400"></i><span>Качество оценок</span>
+      </a>
       <a href="/exports" class="nav-item {% if page == 'exports' %}active{% endif %}"><i data-lucide="download" class="w-4 h-4"></i><span>Готовые экспорты</span></a>
 
       {% if user and user.role == 'admin' %}

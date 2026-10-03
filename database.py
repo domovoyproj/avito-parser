@@ -33,9 +33,10 @@ from repositories.settings import SettingsRepository
 from repositories.analytics import AnalyticsRepository
 from repositories.monitoring_runs import MonitoringRunsRepository
 from repositories.watchlists import WatchlistsRepository
+from repositories.feedback import FeedbackRepository
 
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 
 
 class Database(
@@ -46,6 +47,7 @@ class Database(
     AnalyticsRepository,
     MonitoringRunsRepository,
     WatchlistsRepository,
+    FeedbackRepository,
 ):
     def __init__(self, db_path: Optional[Path] = None):
         self.db_path = db_path or config.db_path
@@ -445,6 +447,22 @@ class Database(
             if old_version < 8:
                 await db.execute("INSERT OR IGNORE INTO watchlists(user_id,name,is_default,created_at) SELECT id,'Избранное',1,strftime('%s','now') FROM users")
                 await db.execute("INSERT OR IGNORE INTO watchlist_items(watchlist_id,item_id,created_at) SELECT w.id,i.id,strftime('%s','now') FROM watchlists w JOIN items i ON i.is_favorite=1 WHERE w.is_default=1")
+            await db.execute("""CREATE TABLE IF NOT EXISTS item_feedback_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                item_id TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                label TEXT NOT NULL CHECK(label IN ('helpful','false_positive','bought','sold','stale')),
+                note TEXT NOT NULL DEFAULT '',
+                score INTEGER,
+                grade TEXT,
+                score_version TEXT NOT NULL,
+                score_confidence REAL,
+                category TEXT,
+                search_query_id INTEGER,
+                created_at TEXT NOT NULL
+            )""")
+            await db.execute("CREATE INDEX IF NOT EXISTS idx_feedback_item_user ON item_feedback_events(item_id,user_id,id DESC)")
+            await db.execute("CREATE INDEX IF NOT EXISTS idx_feedback_scope ON item_feedback_events(score_version,category,search_query_id)")
             for version in range(1, SCHEMA_VERSION + 1):
                 await db.execute(
                     "INSERT OR IGNORE INTO schema_migrations VALUES (?, ?)",

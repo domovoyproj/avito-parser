@@ -20,7 +20,7 @@ async def run(destination):
         await page.wait_for_url('http://127.0.0.1:18765/')
         for width in (1440, 768, 360):
             await page.set_viewport_size({'width': width, 'height': 1000})
-            for path, name in (('/', 'dashboard'), ('/items', 'catalog'), ('/watchlists', 'watchlists'), ('/monitoring', 'monitoring'),
+            for path, name in (('/', 'dashboard'), ('/items', 'catalog'), ('/watchlists', 'watchlists'), ('/feedback', 'feedback'), ('/monitoring', 'monitoring'),
                                ('/settings', 'settings'), ('/parser', 'parser'), ('/logs', 'logs'), ('/exports', 'exports'),
                                ('/item-parser','item-parser'), ('/price-drops','price-drops'), ('/proxies','proxies'), ('/admin/users','users')):
                 await page.goto('http://127.0.0.1:18765' + path)
@@ -41,6 +41,18 @@ async def run(destination):
         await page.wait_for_selector('.product-card')
         opener = page.locator('button[onclick^="openItemModal"]').first
         await opener.focus()
+        await opener.click()
+        await page.wait_for_selector('#item-modal:not(.hidden)')
+        await page.wait_for_function("document.getElementById('item-feedback-status').textContent.includes('пока нет')")
+        await page.select_option('#item-feedback-label', 'false_positive')
+        await page.fill('#item-feedback-note', 'Неполное описание')
+        await page.click('#item-feedback-save')
+        await page.get_by_text('Неполное описание').wait_for()
+        await page.goto('http://127.0.0.1:18765/feedback')
+        await page.wait_for_function("document.getElementById('feedback-count').textContent === '1'")
+        await page.goto('http://127.0.0.1:18765/items')
+        await page.wait_for_selector('.product-card')
+        opener = page.locator('button[onclick^="openItemModal"]').first
         await opener.click()
         await page.wait_for_selector('#item-modal:not(.hidden)')
         await page.wait_for_function("document.getElementById('item-modal').contains(document.activeElement)")
@@ -134,7 +146,7 @@ async def run(destination):
             await context.close()
         assert not errors, errors
         await browser.close()
-    print('PASS: 12 responsive screens, watchlists, themes, dialogs, search, favorite, export, error/retry, XSS text, roles; no browser errors')
+    print('PASS: 13 responsive screens, feedback, watchlists, themes, dialogs, search, favorite, export, error/retry, XSS text, roles; no browser errors')
 
 
 if __name__ == '__main__':
