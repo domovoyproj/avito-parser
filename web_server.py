@@ -306,6 +306,8 @@ from routers.watchlists import router as watchlists_router
 app.include_router(watchlists_router)
 from routers.feedback import router as feedback_router
 app.include_router(feedback_router)
+from routers.saved_filters import router as saved_filters_router
+app.include_router(saved_filters_router)
 
 from routers.parser import router as parser_router, ws_parser, ParseSearchRequest, ParseItemRequest
 app.include_router(parser_router)
