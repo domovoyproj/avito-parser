@@ -2,11 +2,12 @@
 from models import ParseResult
 import re
 from parser_core import AvitoDataExtractor
+from access_guard import access_challenge
 
 
 def extract_page(html):
     lowered = html.lower()
-    if any(marker in lowered for marker in ('data-marker="captcha', 'доступ ограничен', 'проверка браузера', '<title>captcha')):
+    if access_challenge(html):
         return ParseResult(outcome="blocked", errors=["Источник ограничил доступ; сбор остановлен"])
     items = AvitoDataExtractor.extract_from_initial_data(html)
     source = "json"

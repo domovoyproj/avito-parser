@@ -31,22 +31,53 @@
     const container = byId(id);
     container.replaceChildren();
     if (!items.length) {
-      empty(container, deals ? 'Выгодные находки ещё впереди' : 'Здесь появятся ваши объявления', deals ? 'После сбора оценим предложения и покажем лучшие.' : 'Добавьте поиск или запустите разовый сбор.');
+      empty(container, deals ? 'Пока нет предложений с высокой оценкой' : 'Здесь появятся ваши объявления', deals ? 'Посмотрите весь каталог или добавьте ещё один поиск. Оценка — не гарантия выгодной покупки.' : 'Добавьте поиск или запустите разовый сбор.');
       return;
     }
-    items.slice(0, 6).forEach(item => {
+    items.slice(0, 3).forEach(item => {
       const card = node('article', 'deal-card');
       const img = node('img', 'deal-image');
       img.alt = ''; img.loading = 'lazy'; img.referrerPolicy = 'no-referrer';
       img.src = safeUrl(item.main_image) || '/static/img/no-image.svg';
       img.addEventListener('error', () => { img.src = '/static/img/no-image.svg'; }, { once:true });
       const body = node('div', 'deal-body');
-      body.append(node('span', 'state-pill', `${item.deal_score ?? '—'} / 100`));
-      const url = safeUrl(item.url, true);
-      const title = node(url ? 'a' : 'p', '', item.title || 'Без названия');
-      if (url) { title.href = url; title.target = '_blank'; title.rel = 'noopener noreferrer'; }
-      body.append(title, node('div', 'deal-price', formatPrice(item.price)), node('p', 'workspace-muted', item.address || 'Местоположение не указано'));
+      const title = node('a', 'deal-title', item.title || 'Без названия');
+      title.href = '/items?query=' + encodeURIComponent(item.title || item.id);
+      body.append(node('div', 'deal-price', formatPrice(item.price)), title);
+      if (item.deal_score != null) body.append(node('span', 'score-badge', item.deal_score + ' · Оценка'));
+      body.append(node('p', 'workspace-muted', item.address || 'Место не указано'));
       card.append(img, body); container.append(card);
+    });
+  }
+  function renderRecent(items) {
+    const container = byId('overview-recent'); container.replaceChildren();
+    if (!items.length) { empty(container, 'Пока нет объявлений', 'Начните с нового сбора — находки появятся здесь.'); return; }
+    items.slice(0, 4).forEach(item => {
+      const row = node('a', 'recent-row');
+      row.href = '/items?query=' + encodeURIComponent(item.title || item.id);
+      const img = node('img', '');
+      img.src = safeUrl(item.main_image) || '/static/img/no-image.svg';
+      img.alt = ''; img.loading = 'lazy'; img.referrerPolicy = 'no-referrer';
+      img.addEventListener('error', () => { img.src = '/static/img/no-image.svg'; }, {once: true});
+      const label = node('div', '');
+      label.append(node('strong', '', item.title || 'Без названия'), node('small', '', item.address || 'Место не указано'));
+      row.append(img, label, node('span', 'row-price', formatPrice(item.price)));
+      container.append(row);
+    });
+  }
+  function renderBudget(distribution) {
+    const container = byId('overview-budget'); container.replaceChildren();
+    const entries = [['under_10k', 'До 10 000 ₽'], ['10k_50k', '10 000 — 50 000 ₽'], ['50k_100k', '50 000 — 100 000 ₽'], ['over_100k', 'От 100 000 ₽']];
+    const total = Object.values(distribution).reduce((sum, count) => sum + Number(count || 0), 0);
+    if (!total) { empty(container, 'Данных пока нет', 'Соберите объявления, чтобы увидеть распределение.'); return; }
+    entries.forEach(([key, name]) => {
+      const count = Number(distribution[key] || 0);
+      const row = node('div', 'budget-row');
+      const label = node('div', '');
+      label.append(node('span', '', name), node('strong', '', number(count)));
+      const track = node('div', 'budget-track');
+      const bar = node('span', ''); bar.style.width = Math.round(count / total * 100) + '%';
+      track.append(bar); row.append(label, track); container.append(row);
     });
   }
   function renderSearches(searches) {
@@ -76,6 +107,7 @@
       byId('onboarding').hidden = stats.total_searches > 0 || stats.total_items > 0;
       const monitor = data.monitoring;
       text('overview-monitor', monitor.is_running ? 'Работает' : 'На паузе');
+      byId('overview-monitor').classList.toggle('running', monitor.is_running);
       text('overview-toggle', monitor.is_running ? 'Приостановить' : 'Включить');
       text('overview-checking', monitor.current_checking ? `Сейчас проверяем: ${monitor.current_checking}` : 'Новые объявления и изменения цен — в одном месте.');
       text('overview-last', formatRelativeTime(monitor.last_run));
@@ -83,7 +115,8 @@
       text('overview-telegram', data.telegram_configured ? 'Telegram настроен · изменить параметры' : 'Подключите Telegram для уведомлений');
       renderSearches(data.searches || []);
       renderItems('overview-deals', data.top_deals || [], true);
-      renderItems('overview-recent', data.recent_items || []);
+      renderRecent(data.recent_items || []);
+      renderBudget(data.price_distribution || {});
       text('overview-updated', `Обновлено в ${new Date().toLocaleTimeString('ru-RU')} · Автообновление каждые 30 секунд`);
       byId('overview-error').hidden = true;
       loaded = true;
@@ -116,6 +149,7 @@
   byId('overview-toggle').addEventListener('click', () => action('/api/monitoring/toggle', 'Состояние мониторинга изменено'));
   byId('overview-check').addEventListener('click', () => action('/api/monitoring/check-all', 'Проверка запущена. Результаты появятся после завершения.'));
   byId('overview-retry').addEventListener('click', refresh);
+  text('overview-date', new Date().toLocaleDateString('ru-RU', {day:'numeric', month:'long', weekday:'long'}));
   refresh();
   setInterval(() => { if (!document.hidden) refresh(); }, 30000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });

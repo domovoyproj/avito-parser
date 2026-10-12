@@ -13,6 +13,7 @@ from models import AvitoItem, ParseResult
 from parser_core import AvitoDataExtractor
 from proxy_manager import proxy_manager
 from parse_outcomes import extract_page, finalize
+from access_guard import access_challenge
 
 console = Console()
 
@@ -117,7 +118,7 @@ class AvitoBrowserEngine:
         except Exception:
             pass
 
-    async def _check_and_handle_block(self, page: Page) -> bool:
+    async def _check_and_handle_block(self, page: Page, access_callback=None, challenge_state=None, page_num=1) -> bool:
         """
         Проверка на реальную блокировку IP (429) или вызов капчи.
         Если запущен в видимом режиме (headless=False) — дает пользователю время решить капчу.
@@ -129,33 +130,42 @@ class AvitoBrowserEngine:
         except Exception:
             return False
 
-        is_blocked = (
-            "Доступ ограничен" in title or
-            ("Доступ ограничен" in content and "проблема с IP" in content) or
-            "firewall" in title.lower() or
-            "smartcaptcha" in content.lower() or
-            "validate_captcha" in url or
-            "blocked" in url
-        )
-
-        if is_blocked:
-            if not self.headless:
-                console.print("\n[bold yellow]⚠️ Внимание![/bold yellow] Обнаружена проверка/капча от Авито.")
-                console.print("[cyan]Пожалуйста, решите капчу в открытом окне браузера.[/cyan]")
-                console.print("[dim]Ожидание прохождения проверки (до 60 секунд)...[/dim]")
-                for _ in range(30):
-                    await asyncio.sleep(2)
-                    try:
-                        cur_title = await page.title()
-                        cur_content = await page.content()
-                        if "Доступ ограничен" not in cur_title and "проблема с IP" not in cur_content:
-                            console.print("[bold green]✓ Проверка успешно пройдена![/bold green]")
-                            return False
-                    except Exception:
-                        break
+        kind = access_challenge(content, url, title)
+        if not kind:
+            return False
+        state = challenge_state if challenge_state is not None else {}
+        state['count'] = state.get('count', 0) + 1
+        repeated = state['count'] >= 3
+        manual = not self.headless and not repeated
+        notice = {
+            'status': 'waiting_human' if manual else 'blocked',
+            'access_kind': kind, 'captcha_count': state['count'],
+            'challenge_page': page_num, 'repeated_captcha': repeated,
+            'waiting_until': time.time() + 300 if manual else None,
+            'access_message': ('Авито повторно ограничивает доступ. Проверьте маршрут VPN или прокси; автоматические попытки остановлены.' if repeated else
+                               'Пройдите проверку в открытом окне браузера. Ожидаем до 5 минут.' if manual else
+                               'Авито требует проверку доступа. Откройте видимый браузер для ручной проверки; VPN может мешать соединению.'),
+        }
+        if access_callback:
+            await access_callback(notice)
+        if not manual:
             return True
-
-        return False
+        console.print('[yellow]Авито требует проверку. Пройдите её в открытом окне браузера (до 5 минут).[/yellow]')
+        for _ in range(150):
+            await asyncio.sleep(2)
+            try:
+                current = await page.content()
+                # Absence of a title alone is not proof: the search must parse again.
+                if not access_challenge(current, page.url, await page.title()) and extract_page(current).outcome in ('success', 'empty'):
+                    if access_callback:
+                        await access_callback({'status': 'running', 'waiting_until': None, 'access_message': '', 'access_kind': None})
+                    await self._save_cookies(page.context)
+                    return False
+            except Exception:
+                continue
+        if access_callback:
+            await access_callback({'status': 'blocked', 'waiting_until': None, 'access_message': 'Проверка не пройдена за 5 минут. Автоматические попытки остановлены. Полученные объявления доступны в результатах сбора.'})
+        return True
 
     def _build_page_url(self, base_url: str, page_num: int) -> str:
         """Корректное добавление параметра страницы в URL Авито"""
@@ -172,7 +182,9 @@ class AvitoBrowserEngine:
         self,
         url: str,
         max_pages: int = 1,
-        progress_callback: Optional[callable] = None
+        progress_callback: Optional[callable] = None,
+        items_callback: Optional[callable] = None,
+        access_callback: Optional[callable] = None,
     ) -> ParseResult:
         """
         Парсинг поисковой выдачи Авито на заданное количество страниц с защитой от сбоев.
@@ -181,6 +193,7 @@ class AvitoBrowserEngine:
         result = ParseResult()
         all_items: List[AvitoItem] = []
         seen_ids = set()
+        challenge_state = {}
 
         async with async_playwright() as p:
             context = await self._create_context(p)
@@ -196,7 +209,7 @@ class AvitoBrowserEngine:
                         await page.goto(page_url, wait_until="domcontentloaded", timeout=config.scraper.timeout_ms)
                         await asyncio.sleep(random.uniform(1.5, 2.5))
 
-                        if await self._check_and_handle_block(page):
+                        if await self._check_and_handle_block(page, access_callback, challenge_state, page_num):
                             result.outcome = 'blocked'
                             err_msg = f"Страница {page_num} заблокирована Авито (IP ограничение / Капча)."
                             result.errors.append(err_msg)
@@ -218,14 +231,18 @@ class AvitoBrowserEngine:
                         page_items = extracted.items
 
                         new_on_page = 0
+                        new_items = []
                         for item in page_items:
                             if item.id not in seen_ids:
                                 seen_ids.add(item.id)
                                 all_items.append(item)
+                                new_items.append(item)
                                 new_on_page += 1
 
                         console.print(f"[green]✓ Страница {page_num}:[/green] найдено {len(page_items)} объявлений (новых {new_on_page})")
 
+                        if items_callback and new_items:
+                            await items_callback(new_items)
                         if progress_callback:
                             await progress_callback(page_num, max_pages, len(all_items))
 
@@ -242,8 +259,9 @@ class AvitoBrowserEngine:
                     break
 
                 # Пауза между страницами
-                delay = random.uniform(config.scraper.page_delay_min, config.scraper.page_delay_max)
-                await asyncio.sleep(delay)
+                if page_num < max_pages:
+                    delay = random.uniform(config.scraper.page_delay_min, config.scraper.page_delay_max)
+                    await asyncio.sleep(delay)
 
             await self._save_cookies(context)
             await context.browser.close()

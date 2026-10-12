@@ -57,6 +57,7 @@ jobs:
         run: |
           python -m pip install -r requirements-dev.txt -c constraints.txt
           npm ci
+          npm audit --omit=dev
           npm run build
           git diff --exit-code -- static/css/tailwind.css static/vendor
           python -m playwright install --with-deps chromium

@@ -41,7 +41,7 @@ class ParsingJobManager:
             if message_type == "log":
                 self.active_jobs[job_id]["logs"].append(data)
                 self.active_jobs[job_id]['logs'] = self.active_jobs[job_id]['logs'][-500:]
-            elif message_type == "progress":
+            elif message_type in ("progress", "access"):
                 self.active_jobs[job_id].update(data)
             elif message_type == "complete":
                 self.active_jobs[job_id]["status"] = "completed"

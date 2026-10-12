@@ -1,198 +1,42 @@
 {% extends "base.html" %}
 
-{% block title %}Каталог Объявлений — Avito Data Terminal{% endblock %}
+{% block title %}Находки — Avito Max{% endblock %}
 
 {% block content %}
-<div class="max-w-7xl mx-auto space-y-5">
-
-  <!-- Header & Exports -->
-  <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-2 border-b border-white/[0.06]">
-    <div>
-      <div class="flex items-center gap-2.5">
-        <h1 class="text-xl font-bold text-white tracking-tight">Каталог Объявлений</h1>
-        <span class="text-xs font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-400 border border-white/[0.06]" id="pag-total-badge">
-          0 позиций
-        </span>
-      </div>
-      <p class="text-slate-400 text-xs mt-0.5">Фильтрация, мультиселект, аналитика цен и экспорт всей базы</p>
-    </div>
-
-    <!-- Export Actions -->
-    <div class="flex items-center gap-2">
-      <button onclick="exportData('excel')" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-[#111] hover:bg-[#222] text-slate-200 border border-[#333] transition flex items-center gap-1.5 shadow-sm">
-        <i data-lucide="file-spreadsheet" class="w-3.5 h-3.5"></i>
-        <span>Excel</span>
-      </button>
-      <button onclick="exportData('html')" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-[#111] hover:bg-[#222] text-slate-200 border border-[#333] transition flex items-center gap-1.5 shadow-sm">
-        <i data-lucide="layout" class="w-3.5 h-3.5"></i>
-        <span>HTML отчет</span>
-      </button>
-      <button onclick="exportData('csv')" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-[#111] hover:bg-[#222] text-slate-200 border border-[#333] transition flex items-center gap-1.5">
-        <i data-lucide="file-text" class="w-3.5 h-3.5 text-slate-400"></i>
-        <span>CSV</span>
-      </button>
-      <button onclick="exportData('json')" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-[#111] hover:bg-[#222] text-slate-200 border border-[#333] transition flex items-center gap-1.5">
-        <i data-lucide="file-code" class="w-3.5 h-3.5 text-slate-400"></i>
-        <span>JSON</span>
-      </button>
+<div class="catalog-page space-y-5">
+  <div class="page-heading">
+    <div><div class="eyebrow">Выбирайте то, что имеет смысл</div><h1>Находки <span id="pag-total-badge" class="count-badge">Загрузка…</span></h1><p>Сравните предложения, откройте детали и сохраните лучшее.</p></div>
+    <div class="page-actions">
+      <button onclick="exportData('excel')" class="button-secondary"><i data-lucide="download"></i>Excel</button>
+      <button onclick="exportData('csv')" class="button-secondary">CSV</button>
+      <details class="catalog-export-more"><summary class="button-secondary" aria-label="Другие форматы экспорта"><i data-lucide="ellipsis" style="width:18px;height:18px"></i></summary><div class="page-actions"><button onclick="exportData('html')" class="button-secondary">HTML</button><button onclick="exportData('json')" class="button-secondary">JSON</button></div></details>
     </div>
   </div>
-
-  <!-- FILTERS & SEARCH TOOLBAR -->
-  <div class="panel-card p-4 space-y-3.5">
-    
-    <!-- Top Row: Search & Filters -->
-    <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-12 gap-2.5">
-      
-      <!-- Text search (5 cols) -->
-      <div class="sm:col-span-2 xl:col-span-5 relative">
-        <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-500">
-          <i data-lucide="search" class="w-3.5 h-3.5"></i>
-        </div>
-        <input 
-          type="text" 
-          id="filter-query" 
-          placeholder="Поиск по названию, адресу, параметрам..." 
-          oninput="debounceSearch()"
-          class="w-full app-input pl-9 pr-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none"
-        >
-      </div>
-
-      <!-- Search Query Select (3 cols) -->
-      <div class="xl:col-span-3">
-        <select 
-          id="filter-search-id" 
-          onchange="loadItems(1)"
-          class="w-full app-input px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none font-mono"
-        >
-          <option value="">Все задачи поиска</option>
-        </select>
-      </div>
-
-      <!-- Sort By (2 cols) -->
-      <div class="xl:col-span-2">
-        <select 
-          id="filter-sort-by" 
-          onchange="loadItems(1)"
-          class="w-full app-input px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none font-mono"
-        >
-          <option value="deal_score_desc" selected>💎 По AI Score</option>
-          <option value="relevance">По релевантности</option>
-          <option value="newest">Сначала новые</option>
-          <option value="oldest">Сначала старые</option>
-          <option value="price_asc">Цена: по возрастанию</option>
-          <option value="price_desc">Цена: по убыванию</option>
-          <option value="discount_desc">По скидке</option>
-        </select>
-      </div>
-
-      <!-- View Switcher (2 cols) -->
-      <div class="xl:col-span-2 flex items-center gap-1 bg-[#111] p-0.5 rounded-lg border border-[#222]">
-        <button onclick="setViewMode('grid')" id="btn-view-grid" class="flex-1 py-1 rounded text-xs font-semibold flex items-center justify-center gap-1.5 transition bg-white text-black shadow-sm">
-          <i data-lucide="layout-grid" class="w-3.5 h-3.5"></i>
-          <span>Сетка</span>
-        </button>
-        <button onclick="setViewMode('table')" id="btn-view-table" class="flex-1 py-1 rounded text-xs font-semibold flex items-center justify-center gap-1.5 transition text-slate-400 hover:text-white">
-          <i data-lucide="list" class="w-3.5 h-3.5"></i>
-          <span>Список</span>
-        </button>
-      </div>
-
+  <section class="panel-card catalog-toolbar" aria-label="Поиск и фильтры">
+    <div class="catalog-search-row">
+      <div class="search-field"><i data-lucide="search"></i><input type="search" id="filter-query" placeholder="Модель, описание или город…" aria-label="Поиск в каталоге" oninput="debounceSearch()"></div>
+      <select id="filter-search-id" aria-label="Поиск Авито" onchange="loadItems(1)" class="app-input px-3"><option value="">Все поиски</option></select>
+      <select id="filter-sort-by" aria-label="Сортировка" onchange="loadItems(1)" class="app-input px-3">
+        <option value="deal_score_desc">По оценке</option><option value="relevance">По релевантности</option><option value="newest">Сначала новые</option><option value="oldest">Сначала старые</option><option value="price_asc">Сначала дешевле</option><option value="price_desc">Сначала дороже</option><option value="discount_desc">По снижению цены</option>
+      </select>
+      <div class="view-switch" aria-label="Вид каталога"><button onclick="setViewMode('grid')" id="btn-view-grid" aria-pressed="true"><i data-lucide="layout-grid"></i>Карточки</button><button onclick="setViewMode('table')" id="btn-view-table" aria-pressed="false"><i data-lucide="list"></i>Таблица</button></div>
     </div>
-
-    <!-- Bottom Row: Price Range, Grades & Toggles -->
-    <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pt-3 border-t border-white/[0.06] text-xs">
-      
-      <!-- Left Filters Group -->
-      <div class="flex flex-wrap items-center gap-2.5">
-        
-        <!-- Filter: Deal Grade -->
-        <div class="flex items-center gap-1.5 font-mono">
-          <span class="text-slate-500 text-[11px]">AI:</span>
-          <select id="filter-deal-grade" onchange="loadItems(1)" class="app-input px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none font-mono">
-            <option value="">Все оценки</option>
-            <option value="GEM">💎 GEM (85+)</option>
-            <option value="HOT">🔥 HOT & GEM (70+)</option>
-            <option value="FAIR">⚖️ FAIR и выше (50+)</option>
-            <option value="CAUTION">⚠️ CAUTION (&lt;50)</option>
-          </select>
-        </div>
-
-        <!-- Price Range -->
-        <div class="flex items-center gap-1.5 font-mono">
-          <span class="text-slate-500 text-[11px]">Цена:</span>
-          <input 
-            type="number" 
-            id="filter-min-price" 
-            placeholder="0" 
-            onchange="loadItems(1)"
-            class="w-20 app-input px-2 py-1.5 text-xs text-white text-right font-mono"
-          >
-          <span class="text-slate-600 text-xs">—</span>
-          <input 
-            type="number" 
-            id="filter-max-price" 
-            placeholder="Макс" 
-            onchange="loadItems(1)"
-            class="w-24 app-input px-2 py-1.5 text-xs text-white text-right font-mono"
-          >
-          <span class="text-slate-500 text-[11px]">₽</span>
-        </div>
-
-        <div class="h-4 w-px bg-white/[0.08] hidden sm:block mx-0.5"></div>
-
-        <!-- Toggles as clean badge pills -->
-        <div class="flex flex-wrap items-center gap-1.5">
-          <!-- Checkbox: Favorites only -->
-          <label class="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.06] cursor-pointer select-none text-slate-300 transition text-[11px]">
-            <input type="checkbox" id="filter-favorites-only" onchange="loadItems(1)" class="w-3.5 h-3.5 text-amber-500 rounded bg-slate-900 border-slate-700">
-            <span>⭐ Избранное</span>
-          </label>
-
-          <!-- Checkbox: Discounts only -->
-          <label class="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.06] cursor-pointer select-none text-slate-300 transition text-[11px]">
-            <input type="checkbox" id="filter-discount-only" onchange="loadItems(1)" class="w-3.5 h-3.5 text-blue-600 rounded bg-slate-900 border-slate-700">
-            <span>📉 Со скидкой</span>
-          </label>
-
-          <!-- Checkbox: Delivery only -->
-          <label class="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.06] cursor-pointer select-none text-slate-300 transition text-[11px]">
-            <input type="checkbox" id="filter-delivery-only" onchange="loadItems(1)" class="w-3.5 h-3.5 text-blue-600 rounded bg-slate-900 border-slate-700">
-            <span>🚚 Доставка</span>
-          </label>
-
-          <!-- Checkbox: Hide Reserved -->
-          <label class="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.06] cursor-pointer select-none text-slate-300 transition text-[11px]" title="Скрыть зарезервированные">
-            <input type="checkbox" id="filter-hide-reserved" checked onchange="loadItems(1)" class="w-3.5 h-3.5 text-amber-500 rounded bg-slate-900 border-slate-700">
-            <span>🔒 Без брони</span>
-          </label>
-        </div>
-
-      </div>
-
-      <!-- Right Actions: Recalculate & Clear -->
-      <div class="flex items-center gap-2.5 flex-shrink-0 pt-2 lg:pt-0 border-t lg:border-t-0 border-white/[0.04]">
-        <button onclick="recalculateAllScores()" id="btn-recalc-scores" class="px-2.5 py-1 rounded-lg bg-blue-600/10 hover:bg-blue-600/20 text-blue-400 hover:text-blue-300 border border-blue-500/20 text-[11px] font-medium flex items-center gap-1.5 transition shadow-sm">
-          <i data-lucide="sparkles" class="w-3 h-3 text-blue-400"></i>
-          <span>Пересчитать AI Score</span>
-        </button>
-        <button onclick="clearAllDatabase()" class="px-2.5 py-1 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 border border-rose-500/20 text-[11px] font-medium flex items-center gap-1.5 transition shadow-sm">
-          <i data-lucide="trash-2" class="w-3 h-3"></i>
-          <span>Очистить</span>
-        </button>
-      </div>
-
+    <div class="catalog-filters">
+      <select id="filter-deal-grade" onchange="loadItems(1)" aria-label="Оценка предложения"><option value="">Любая оценка</option><option value="GEM">Особенно интересно · 85+</option><option value="HOT">Выгодно · 70+</option><option value="FAIR">От обычных и выше · 50+</option><option value="CAUTION">Требует проверки · до 50</option></select>
+      <div class="price-filter"><input type="number" min="0" id="filter-min-price" placeholder="Цена от" aria-label="Минимальная цена" onchange="loadItems(1)"><span>—</span><input type="number" min="0" id="filter-max-price" placeholder="до" aria-label="Максимальная цена" onchange="loadItems(1)"><span>₽</span></div>
+      <label class="filter-pill"><input type="checkbox" id="filter-favorites-only" onchange="loadItems(1)">Избранное</label>
+      <label class="filter-pill"><input type="checkbox" id="filter-discount-only" onchange="loadItems(1)">Цена снизилась</label>
+      <label class="filter-pill"><input type="checkbox" id="filter-delivery-only" onchange="loadItems(1)">С доставкой</label>
+      <label class="filter-pill"><input type="checkbox" id="filter-hide-reserved" checked onchange="loadItems(1)">Без брони</label>
+      <button onclick="resetCatalogFilters()" class="workspace-link" style="font-size:12px;padding:7px" type="button">Сбросить</button>
     </div>
-
-    <div class="flex flex-wrap gap-2 items-center pt-3 border-t border-white/[0.06]">
-      <select id="saved-filter-select" aria-label="Сохранённый фильтр" class="app-input px-2.5 py-1.5 text-xs text-slate-200 min-w-40"><option value="">Мои фильтры</option></select>
-      <button onclick="applySavedFilter()" class="px-2.5 py-1.5 rounded-lg bg-blue-600/15 text-blue-300 text-xs">Открыть</button>
-      {% if user.role != 'viewer' %}<button onclick="saveCurrentFilter()" class="px-2.5 py-1.5 rounded-lg bg-emerald-600/15 text-emerald-300 text-xs">Сохранить фильтр</button><button onclick="deleteSavedFilter()" class="px-2.5 py-1.5 rounded-lg bg-rose-600/15 text-rose-300 text-xs">Удалить</button>{% endif %}
-      <button onclick="copyCatalogLink()" class="px-2.5 py-1.5 rounded-lg bg-white/[0.05] text-slate-300 text-xs">Скопировать ссылку</button>
-      <span id="saved-filter-status" role="status" class="text-xs text-slate-500"></span>
-    </div>
-
-  </div>
+    <details id="catalog-saved" class="saved-filters"><summary>Мои фильтры и ссылка на выборку</summary>
+      <div><select id="saved-filter-select" aria-label="Сохранённый фильтр" class="app-input"><option value="">Мои фильтры</option></select><button onclick="applySavedFilter()" class="button-secondary">Применить</button>
+      {% if user.role != 'viewer' %}<button onclick="saveCurrentFilter()" class="button-secondary">Сохранить фильтр</button><button onclick="deleteSavedFilter()" class="button-secondary">Удалить</button>{% endif %}
+      <button onclick="copyCatalogLink()" class="button-secondary">Ссылка на выборку</button><span id="saved-filter-status" role="status" class="form-hint"></span></div>
+    </details>
+    {% if user.role == 'admin' %}<details class="catalog-maintenance"><summary>Обслуживание каталога</summary><div><button onclick="recalculateAllScores()" id="btn-recalc-scores" class="button-secondary">Пересчитать оценки</button><button onclick="clearAllDatabase()" class="button-secondary" style="color:var(--danger)">Очистить базу</button></div></details>{% else %}<span id="btn-recalc-scores" hidden></span>{% endif %}
+  </section>
 
   <!-- FLOATING BATCH ACTION BAR -->
   <div id="batch-action-bar" class="hidden panel-card p-3 border border-blue-500/30 flex items-center justify-between gap-4 bg-slate-900/90 shadow-xl">
@@ -207,6 +51,7 @@
       <button onclick="executeBatchAction('delete')" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-rose-500/20 text-rose-300 border border-white/[0.08] text-xs font-medium transition flex items-center gap-1">
         <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
         <span>Удалить выбранные</span>
+      </button>
       <button onclick="clearSelection()" class="px-2.5 py-1 rounded text-slate-400 hover:text-white text-xs font-medium transition">
         Отменить выбор
       </button>
@@ -214,7 +59,7 @@
   </div>
 
   <!-- ITEMS CONTAINER (GRID VIEW) -->
-  <div id="catalog-loading" role="status" hidden>Загружаем объявления…</div>
+  <div id="catalog-loading" class="loading-line" role="status" hidden>Загружаем объявления…</div>
   <div id="catalog-error" role="alert" hidden class="panel-card p-4">Не удалось загрузить объявления. Показаны последние полученные данные. <button onclick="loadItems(currentPage)" class="btn-primary">Повторить</button></div>
   <div id="items-grid-container" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4">
     <div class="col-span-full py-16 text-center text-slate-500 text-xs font-mono">Загрузка объявлений...</div>
@@ -243,7 +88,7 @@
   </div>
 
   <!-- PAGINATION -->
-  <div class="flex flex-col sm:flex-row items-center justify-between gap-4 panel-card p-3.5 text-xs text-slate-400 font-mono">
+  <div class="catalog-footer">
     <div>
       Показано: <span id="pag-showing-val" class="font-bold text-white">0</span> из <span id="pag-total-val" class="font-bold text-white">0</span> позиций
     </div>
@@ -268,13 +113,13 @@
 <!-- ITEM DETAILS MODAL -->
 <div id="item-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 overflow-y-auto">
   <div class="panel-card w-full max-w-3xl border border-white/[0.12] p-5 space-y-4 shadow-2xl my-8 max-h-[90vh] overflow-y-auto">
-    
+
     <div class="flex items-center justify-between pb-3 border-b border-white/[0.06]">
       <div class="min-w-0 pr-4">
         <div class="flex items-center gap-2">
           <span class="text-[10px] text-blue-400 font-mono font-semibold" id="modal-item-id">ID: —</span>
-          <span id="modal-hot-deal-tag" class="hidden px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-orange-500/20 text-orange-400 border border-orange-500/30">🔥 ВЫГОДНАЯ ЦЕНА</span>
-          <span id="modal-gem-tag" class="hidden px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">💎 GEM-ЛОТ</span>
+          <span id="modal-hot-deal-tag" class="hidden px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-orange-500/20 text-orange-400 border border-orange-500/30">Выгодное предложение</span>
+          <span id="modal-gem-tag" class="hidden px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">Интересное предложение</span>
         </div>
         <h3 id="modal-item-title" class="text-base font-bold text-white truncate mt-0.5"></h3>
       </div>
@@ -289,23 +134,11 @@
       </div>
     </div>
 
-    <section class="rounded-lg border border-white/[0.08] bg-slate-900/50 p-3 space-y-2" aria-labelledby="item-watch-title">
-      <h4 id="item-watch-title" class="text-xs font-semibold text-white">Наблюдение за ценой</h4>
-      <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
-        <select id="item-watchlist-select" class="app-input px-2 py-1.5 text-xs" aria-label="Список наблюдения" onchange="loadItemWatchState()"><option value="">Загрузка списков…</option></select>
-        <input id="item-watch-target" type="number" min="0" max="1000000000" class="app-input px-2 py-1.5 text-xs" placeholder="Целевая цена, ₽" aria-label="Целевая цена" {% if user.role == 'viewer' %}disabled{% endif %}>
-        <input id="item-watch-note" maxlength="1000" class="app-input px-2 py-1.5 text-xs" placeholder="Заметка" aria-label="Заметка" {% if user.role == 'viewer' %}disabled{% endif %}>
-      </div>
-      <label class="inline-flex items-center gap-2 text-xs text-slate-300"><input id="item-watch-paused" type="checkbox" {% if user.role == 'viewer' %}disabled{% endif %}>Приостановить оповещения для объявления</label>
-      <div class="flex items-center gap-3">
-        {% if user.role != 'viewer' %}<button id="item-watch-save" type="button" onclick="saveItemWatchState()" class="px-3 py-1.5 rounded bg-blue-600 text-white text-xs disabled:opacity-30" disabled>Сохранить в список</button>{% endif %}
-        <span id="item-watch-status" class="text-xs text-slate-400" aria-live="polite"></span>
-      </div>
-    </section>
+
 
     <!-- Gallery & Price -->
     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-      
+
       <!-- Gallery -->
       <div class="space-y-2">
         <div class="aspect-[4/3] bg-slate-950 rounded-lg overflow-hidden border border-white/[0.06] flex items-center justify-center">
@@ -351,12 +184,23 @@
       </div>
 
     </div>
+    <section class="resale-calculator" aria-labelledby="calculator-title">
+      <h4 id="calculator-title" class="form-section-title">Есть ли смысл в перепродаже?</h4>
+      <p class="form-hint">Укажите свою цену продажи и все расходы. Расчёт остаётся в этой карточке и не изменяет объявление.</p>
+      <div class="calculator-fields">
+        <label>Покупка, ₽<input id="calc-buy" type="number" min="0" max="1000000000" step="1" oninput="updateResaleCalculator()"></label>
+        <label>Продажа, ₽<input id="calc-sale" type="number" min="0" max="1000000000" step="1" placeholder="Ваша оценка" oninput="updateResaleCalculator()"></label>
+        <label>Все расходы, ₽<input id="calc-costs" type="number" min="0" max="1000000000" step="1" value="0" oninput="updateResaleCalculator()"></label>
+      </div>
+      <div class="calculator-result" id="calc-result-row"><span class="form-hint">Разница после расходов<br><span id="calc-margin">Заполните цены покупки и продажи</span></span><strong id="calc-profit" role="status">—</strong></div>
+      <p class="form-hint" style="margin-top:12px">Учтите комиссию, доставку, ремонт и другие затраты. Это расчёт по введённым данным, а не прогноз продажи.</p>
+    </section>
     <!-- AI Deal Scoring & Expert Analytics Block -->
     <div class="p-4 rounded-xl bg-gradient-to-br from-slate-900 via-[#0b101d] to-slate-900 border border-white/[0.08] space-y-3.5 shadow-lg">
       <div class="flex items-center justify-between">
         <div class="flex items-center gap-2">
           <span class="w-2 h-2 rounded-full bg-blue-400 animate-pulse"></span>
-          <span class="text-xs font-bold uppercase tracking-wider font-mono text-white">AI Анализ и Оценка Выгоды</span>
+          <span class="text-xs font-bold uppercase tracking-wider font-mono text-white">Оценка предложения</span>
         </div>
         <div id="modal-deal-grade-badge" class="px-2.5 py-0.5 rounded text-xs font-mono font-bold"></div>
       </div>
@@ -364,7 +208,7 @@
       <!-- Score bar -->
       <div class="space-y-1.5">
         <div class="flex justify-between text-xs font-mono">
-          <span class="text-slate-400">Многофакторный скоринг сделки:</span>
+          <span class="text-slate-400">Цена, продавец и качество описания:</span>
           <span id="modal-deal-score-text" class="font-bold text-white">50 / 100</span>
         </div>
         <div class="w-full bg-slate-950 rounded-full h-2.5 overflow-hidden border border-white/[0.08] p-0.5">
@@ -377,7 +221,7 @@
         <div class="space-y-1.5 p-2.5 rounded-lg bg-slate-950/60 border border-white/[0.04]">
           <div class="text-slate-400 font-mono text-[10px] uppercase font-bold flex items-center gap-1">
             <i data-lucide="check-circle-2" class="w-3 h-3 text-emerald-400"></i>
-            <span>Плюсы и маржинальность:</span>
+            <span>Что говорит в пользу покупки:</span>
           </div>
           <div id="modal-deal-reasons" class="space-y-1 text-slate-300 font-mono text-[11px]"></div>
         </div>
@@ -385,7 +229,7 @@
         <div class="space-y-1.5 p-2.5 rounded-lg bg-slate-950/60 border border-white/[0.04]">
           <div class="text-slate-400 font-mono text-[10px] uppercase font-bold flex items-center gap-1">
             <i data-lucide="alert-triangle" class="w-3 h-3 text-rose-400"></i>
-            <span>Выявленные риски / дефекты:</span>
+            <span>Что стоит проверить:</span>
           </div>
           <div id="modal-deal-flaws" class="space-y-1 text-rose-300 font-mono text-[11px]"></div>
         </div>
@@ -408,6 +252,20 @@
         </div>
       </div>
     </div>
+
+    <section class="rounded-lg border border-white/[0.08] bg-slate-900/50 p-3 space-y-2" aria-labelledby="item-watch-title">
+      <h4 id="item-watch-title" class="text-xs font-semibold text-white">Наблюдение за ценой</h4>
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+        <select id="item-watchlist-select" class="app-input px-2 py-1.5 text-xs" aria-label="Список наблюдения" onchange="loadItemWatchState()"><option value="">Загрузка списков…</option></select>
+        <input id="item-watch-target" type="number" min="0" max="1000000000" class="app-input px-2 py-1.5 text-xs" placeholder="Целевая цена, ₽" aria-label="Целевая цена" {% if user.role == 'viewer' %}disabled{% endif %}>
+        <input id="item-watch-note" maxlength="1000" class="app-input px-2 py-1.5 text-xs" placeholder="Заметка" aria-label="Заметка" {% if user.role == 'viewer' %}disabled{% endif %}>
+      </div>
+      <label class="inline-flex items-center gap-2 text-xs text-slate-300"><input id="item-watch-paused" type="checkbox" {% if user.role == 'viewer' %}disabled{% endif %}>Приостановить оповещения для объявления</label>
+      <div class="flex items-center gap-3">
+        {% if user.role != 'viewer' %}<button id="item-watch-save" type="button" onclick="saveItemWatchState()" class="px-3 py-1.5 rounded bg-blue-600 text-white text-xs disabled:opacity-30" disabled>Сохранить в список</button>{% endif %}
+        <span id="item-watch-status" class="text-xs text-slate-400" aria-live="polite"></span>
+      </div>
+    </section>
 
     <section class="p-4 rounded-xl border border-white/[0.08] bg-slate-900/70 space-y-3" aria-label="Оценка рекомендации">
       <div class="flex items-center justify-between gap-3"><h4 class="text-sm font-semibold text-white">Оценка рекомендации</h4><a href="/feedback" class="text-xs text-blue-300 hover:underline">Отчёт о качестве</a></div>
@@ -539,23 +397,15 @@ function highlightedTitle(title) {
 }
 
 function setViewMode(mode) {
-  currentViewMode = mode;
-  const gridEl = document.getElementById('items-grid-container');
-  const tableEl = document.getElementById('items-table-container');
-  const btnGrid = document.getElementById('btn-view-grid');
-  const btnTable = document.getElementById('btn-view-table');
+  currentViewMode = mode === 'table' ? 'table' : 'grid';
+  document.getElementById('items-grid-container').classList.toggle('hidden', currentViewMode !== 'grid');
+  document.getElementById('items-table-container').classList.toggle('hidden', currentViewMode !== 'table');
+  document.getElementById('btn-view-grid').setAttribute('aria-pressed', String(currentViewMode === 'grid'));
+  document.getElementById('btn-view-table').setAttribute('aria-pressed', String(currentViewMode === 'table'));
+}
 
-  if (mode === 'grid') {
-    gridEl.classList.remove('hidden');
-    tableEl.classList.add('hidden');
-    btnGrid.className = 'flex-1 py-1 rounded text-xs font-semibold flex items-center justify-center gap-1.5 transition bg-white text-black shadow-sm';
-    btnTable.className = 'flex-1 py-1 rounded text-xs font-semibold flex items-center justify-center gap-1.5 transition text-slate-400 hover:text-white';
-  } else {
-    gridEl.classList.add('hidden');
-    tableEl.classList.remove('hidden');
-    btnTable.className = 'flex-1 py-1 rounded text-xs font-semibold flex items-center justify-center gap-1.5 transition bg-white text-black shadow-sm';
-    btnGrid.className = 'flex-1 py-1 rounded text-xs font-semibold flex items-center justify-center gap-1.5 transition text-slate-400 hover:text-white';
-  }
+function resetCatalogFilters() {
+  applyCatalogFilters({hide_reserved: true, sort_by: 'deal_score_desc'});
 }
 
 function debounceSearch() {
@@ -570,7 +420,7 @@ async function loadSearchSelectOptions() {
     const searches = await apiFetch('/api/searches');
     const select = document.getElementById('filter-search-id');
     if (!select) return;
-    
+
     const urlParams = new URLSearchParams(window.location.search);
     const targetSearchId = urlParams.get('search_id');
     const targetGrade = urlParams.get('deal_grade');
@@ -629,6 +479,7 @@ async function loadItems(page = 1) {
     (data.items || []).forEach(it => currentItemsMap.set(String(it.id), it));
 
     // Pagination numbers
+
     document.getElementById('pag-showing-val').innerText = data.items.length;
     document.getElementById('pag-total-val').innerText = data.total.toLocaleString('ru-RU');
     document.getElementById('pag-total-badge').innerText = `${data.total.toLocaleString('ru-RU')} позиций`;
@@ -693,7 +544,8 @@ async function toggleFavorite(itemId, e) {
     const res = await apiFetch(`/api/items/${itemId}/favorite`, { method: 'POST' });
     const item = currentItemsMap.get(String(itemId));
     if (item) item.is_favorite = res.is_favorite;
-    
+    document.querySelectorAll('.btn-fav-' + CSS.escape(String(itemId))).forEach(button => button.classList.toggle('is-favorite', res.is_favorite));
+
     // Update button icons
     document.querySelectorAll(`.btn-fav-${itemId}`).forEach(btn => {
       btn.innerHTML = res.is_favorite
@@ -729,109 +581,43 @@ async function executeBatchAction(action) {
 }
 
 function getGradeBadgeHtml(score, grade) {
-  const s = score !== undefined && score !== null ? score : 50;
-  const g = grade || (s >= 85 ? 'GEM' : (s >= 70 ? 'HOT' : (s >= 50 ? 'FAIR' : 'CAUTION')));
-  if (s >= 85 || g === 'GEM') {
-    return `<span class="px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-[#0a0a0f]/90 text-emerald-300 border border-emerald-500/50 shadow-md backdrop-blur-md flex items-center gap-1">💎 ${s} GEM</span>`;
-  } else if (s >= 70 || g === 'HOT') {
-    return `<span class="px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-[#0a0a0f]/90 text-amber-300 border border-amber-500/50 shadow-md backdrop-blur-md flex items-center gap-1">🔥 ${s} HOT</span>`;
-  } else if (s >= 50 || g === 'FAIR') {
-    return `<span class="px-1.5 py-0.5 rounded-md text-[9px] font-mono font-medium bg-[#0a0a0f]/90 text-slate-300 border border-white/20 shadow-md backdrop-blur-md flex items-center gap-1">⚖️ ${s}</span>`;
-  } else {
-    return `<span class="px-1.5 py-0.5 rounded-md text-[9px] font-mono font-medium bg-[#0a0a0f]/90 text-rose-300 border border-rose-500/50 shadow-md backdrop-blur-md flex items-center gap-1">⚠️ ${s}</span>`;
-  }
+  if (score == null) return '<span class="score-badge fair">Без оценки</span>';
+  const value = Math.max(0, Math.min(100, Number(score) || 0));
+  const name = value >= 85 ? 'Интересно' : value >= 70 ? 'Выгодно' : value >= 50 ? 'Обычно' : 'Проверить';
+  const tone = value >= 85 ? 'gem' : value >= 70 ? 'hot' : value >= 50 ? 'fair' : 'caution';
+  return '<span class="score-badge ' + tone + '">' + value + ' · ' + name + '</span>';
 }
 
 function renderGrid(items) {
   const container = document.getElementById('items-grid-container');
-  if (!items || items.length === 0) {
-    container.innerHTML = `<div class="col-span-full py-16 text-center text-slate-500 text-xs font-mono">Объявления по заданным фильтрам не найдены</div>`;
+  if (!items || !items.length) {
+    container.innerHTML = '<div class="workspace-empty" style="grid-column:1/-1"><div class="empty-icon"><i data-lucide="search"></i></div><strong>Таких объявлений пока нет</strong><span>Попробуйте другой запрос или уберите часть фильтров.</span><button class="button-secondary" style="margin-top:18px" onclick="resetCatalogFilters()">Сбросить фильтры</button></div>';
+    if (window.lucide) lucide.createIcons();
     return;
   }
-
-  container.innerHTML = items.map(it => {
-    const hasDiscount = it.old_price && it.price && it.price < it.old_price;
-    const discountPct = hasDiscount ? Math.round(((it.old_price - it.price) / it.old_price) * 100) : 0;
-    const isSelected = selectedItemIds.has(String(it.id));
-
-    return `
-      <div class="product-card group relative flex flex-col justify-between">
-        <div>
-          <div class="relative aspect-[4/3] bg-slate-950 overflow-hidden border-b border-white/[0.04]">
-            <img src="${safeResourceUrl(it.main_image || '/static/img/no-image.svg')}" class="w-full h-full object-cover group-hover:scale-105 transition-all duration-300" onerror="this.src='/static/img/no-image.svg'">
-            
-            <!-- Checkbox overlay -->
-            <div class="absolute top-2 left-2 z-10">
-              <label class="flex items-center justify-center p-1 rounded-md bg-[#0a0a0f]/80 hover:bg-[#0a0a0f] backdrop-blur-md border border-white/15 cursor-pointer shadow transition">
-                <input type="checkbox" ${isSelected ? 'checked' : ''} onchange="toggleItemSelection(${htmlText(JSON.stringify(it.id))}, this)" class="item-select-checkbox w-3.5 h-3.5 text-blue-600 rounded bg-slate-900 border-slate-700 cursor-pointer">
-              </label>
-            </div>
-
-            <!-- Badges -->
-            <div class="absolute top-2 right-2 flex flex-col gap-1 items-end z-10">
-              ${getGradeBadgeHtml(it.deal_score, it.deal_grade)}
-
-              ${it.is_reserved ? `
-                <span class="px-1.5 py-0.5 rounded-md text-[9px] font-mono font-bold bg-[#0a0a0f]/90 text-amber-300 border border-amber-500/40 backdrop-blur-md shadow-md">
-                  🔒 ЗАРЕЗЕРВИРОВАН
-                </span>
-              ` : ''}
-
-              ${hasDiscount ? `
-                <span class="px-1.5 py-0.5 rounded-md text-[9px] font-mono font-bold bg-[#0a0a0f]/90 text-emerald-400 border border-emerald-500/40 backdrop-blur-md shadow-md">
-                  -${discountPct}%
-                </span>
-              ` : ''}
-              ${it.delivery_available ? `
-                <span class="px-1.5 py-0.5 rounded-md bg-[#0a0a0f]/90 text-slate-200 text-[9px] font-mono font-semibold border border-white/20 backdrop-blur-md shadow-md">
-                  🚚 ДОСТАВКА
-                </span>
-              ` : ''}
-            </div>
-          </div>
-
-          <div class="p-3.5 pb-0">
-            <div class="flex items-start justify-between gap-1.5">
-              <div class="font-semibold text-slate-200 text-xs line-clamp-2 leading-snug" title="${htmlText(it.title)}">${highlightedTitle(it.title)}</div>
-              <button onclick="toggleFavorite(${htmlText(JSON.stringify(it.id))}, event)" class="btn-fav-${htmlText(it.id)} p-1 text-slate-500 hover:text-amber-400 transition flex-shrink-0" title="В избранное">
-                ${it.is_favorite 
-                  ? '<i data-lucide="star" class="w-3.5 h-3.5 fill-amber-400 text-amber-400"></i>' 
-                  : '<i data-lucide="star" class="w-3.5 h-3.5"></i>'}
-              </button>
-            </div>
-            
-            <div class="flex items-baseline gap-2 mt-1.5">
-              <span class="text-sm font-bold text-white font-mono">${formatPrice(it.price)}</span>
-              ${hasDiscount ? `<span class="text-[10px] line-through text-slate-500 font-mono">${formatPrice(it.old_price)}</span>` : ''}
-            </div>
-
-            <div class="text-[10px] text-slate-500 mt-1 truncate font-mono">
-              ${htmlText(it.address || it.metro || 'Россия')}
-            </div>
-          </div>
-        </div>
-
-        <div class="p-3 pt-2.5">
-          <div class="pt-2 border-t border-white/[0.06] flex items-center gap-1">
-            <button onclick="openItemModal(${htmlText(JSON.stringify(it.id))})" class="flex-1 h-7 px-2 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-slate-300 hover:text-white border border-white/[0.08] text-[11px] font-medium transition flex items-center justify-center gap-1 shadow-sm" title="Детали и AI-анализ">
-              <i data-lucide="eye" class="w-3 h-3 text-slate-400"></i>
-              <span>Детали</span>
-            </button>
-
-            <a href="${safeResourceUrl(it.url)}" target="_blank" class="flex-1 h-7 px-2 rounded-lg bg-blue-600/15 hover:bg-blue-600/25 text-blue-400 hover:text-blue-300 border border-blue-500/30 text-[11px] font-medium transition flex items-center justify-center gap-1 shadow-sm" title="Открыть на Авито">
-              <span>Авито</span>
-              <i data-lucide="external-link" class="w-3 h-3"></i>
-            </a>
-
-            <button onclick="hideItem(${htmlText(JSON.stringify(it.id))}, event)" class="h-7 w-7 flex-shrink-0 rounded-lg bg-white/[0.04] hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 border border-white/[0.08] hover:border-rose-500/30 transition flex items-center justify-center shadow-sm" title="Скрыть объявление">
-              <i data-lucide="eye-off" class="w-3.5 h-3.5"></i>
-            </button>
-          </div>
-        </div>
-      </div>
-    `;
+  container.innerHTML = items.map(item => {
+    const id = htmlText(JSON.stringify(item.id));
+    const discounted = item.old_price != null && item.price != null && item.price < item.old_price && item.old_price > 0;
+    const percent = discounted ? Math.round((item.old_price - item.price) / item.old_price * 100) : 0;
+    const selected = selectedItemIds.has(String(item.id));
+    const reason = item.deal_reasons?.[0] || (item.seller?.rating ? 'Рейтинг продавца ' + item.seller.rating : 'Откройте карточку для подробностей');
+    return [
+      '<article class="product-card">',
+      '<div class="product-photo"><img src="' + safeResourceUrl(item.main_image || '/static/img/no-image.svg') + '" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.onerror=null;this.src=\'/static/img/no-image.svg\'">',
+      '<div class="photo-badges">' + (discounted ? '<span>−' + percent + '%</span>' : '') + (item.delivery_available ? '<span>Доставка</span>' : '') + (item.is_reserved ? '<span>Бронь</span>' : '') + '</div>',
+      '<label class="product-select" title="Выбрать объявление"><input aria-label="Выбрать ' + htmlText(item.title) + '" type="checkbox" ' + (selected ? 'checked' : '') + ' onchange="toggleItemSelection(' + id + ', this)" class="item-select-checkbox"></label></div>',
+      '<div class="product-info"><div class="product-price-row"><span class="product-price">' + formatPrice(item.price) + '</span>',
+      '<button onclick="toggleFavorite(' + id + ', event)" class="icon-button btn-fav-' + htmlText(item.id) + (item.is_favorite ? ' is-favorite' : '') + '" aria-label="В избранное" title="В избранное"><i data-lucide="star"></i></button></div>',
+      discounted ? '<div class="product-old-price">' + formatPrice(item.old_price) + '</div>' : '',
+      '<h3 class="product-title" title="' + htmlText(item.title) + '">' + highlightedTitle(item.title || 'Без названия') + '</h3>',
+      '<div class="product-location">' + htmlText(item.address || item.metro || 'Место не указано') + '</div>',
+      '<div style="margin-top:12px">' + getGradeBadgeHtml(item.deal_score, item.deal_grade) + '</div>',
+      '<div class="product-evidence" title="' + htmlText(reason) + '"><i data-lucide="check"></i><span>' + htmlText(reason) + '</span></div></div>',
+      '<div class="product-actions"><button onclick="openItemModal(' + id + ')" class="button-secondary">Подробнее</button>',
+      '<a href="' + safeResourceUrl(item.url) + '" target="_blank" rel="noopener noreferrer">Авито <i data-lucide="arrow-up-right"></i></a>',
+      '<button onclick="hideItem(' + id + ', event)" class="icon-button" title="Скрыть объявление" aria-label="Скрыть объявление"><i data-lucide="eye-off"></i></button></div></article>'
+    ].join('');
   }).join('');
-
   if (window.lucide) lucide.createIcons();
 }
 
@@ -885,8 +671,8 @@ function renderTable(items) {
         </td>
         <td class="py-2.5 px-3 text-right space-x-1.5 whitespace-nowrap font-sans">
           <button onclick="toggleFavorite(${htmlText(JSON.stringify(it.id))}, event)" class="btn-fav-${htmlText(it.id)} inline-flex items-center justify-center h-7 w-7 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-slate-400 hover:text-amber-400 border border-white/[0.08] transition shadow-sm" title="В избранное">
-            ${it.is_favorite 
-              ? '<i data-lucide="star" class="w-3.5 h-3.5 fill-amber-400 text-amber-400"></i>' 
+            ${it.is_favorite
+              ? '<i data-lucide="star" class="w-3.5 h-3.5 fill-amber-400 text-amber-400"></i>'
               : '<i data-lucide="star" class="w-3.5 h-3.5"></i>'}
           </button>
           <button onclick="openItemModal(${htmlText(JSON.stringify(it.id))})" class="inline-flex items-center justify-center h-7 w-7 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-slate-300 hover:text-white border border-white/[0.08] transition shadow-sm" title="Детали">
@@ -922,11 +708,15 @@ async function openItemModal(itemId) {
     document.getElementById('modal-item-id').innerText = `ID: ${item.id}`;
     document.getElementById('modal-item-title').innerText = item.title;
     document.getElementById('modal-item-price').innerText = formatPrice(item.price);
+    document.getElementById('calc-buy').value = item.price ?? '';
+    document.getElementById('calc-sale').value = '';
+    document.getElementById('calc-costs').value = '0';
+    updateResaleCalculator();
     document.getElementById('modal-item-oldprice').innerText = item.old_price && item.old_price > item.price ? formatPrice(item.old_price) : '';
     document.getElementById('modal-item-address').innerText = item.address || item.metro || 'Локация не указана';
     document.getElementById('modal-item-seller').innerText = item.seller ? `${item.seller.name || 'Продавец'} (${item.seller.rating ? '★ ' + item.seller.rating : ''})` : 'Частное лицо';
     document.getElementById('modal-item-delivery').innerText = item.delivery_available ? 'Авито Доставка доступна' : 'Самовывоз / Без доставки';
-    document.getElementById('modal-item-link').href = item.url;
+    document.getElementById('modal-item-link').href = safeDomUrl(item.url);
     document.getElementById('modal-item-desc').innerText = item.description || 'Описание отсутствует.';
 
     const hotTag = document.getElementById('modal-hot-deal-tag');
@@ -972,7 +762,7 @@ async function openItemModal(itemId) {
     if (item.detected_flaws && item.detected_flaws.length > 0) {
       flawsEl.innerHTML = item.detected_flaws.map(f => `<div class="flex items-center gap-1"><span>⚠️</span> <span>${htmlText(f)}</span></div>`).join('');
     } else {
-      flawsEl.innerHTML = `<div class="text-slate-500 italic">Рисков и дефектов не обнаружено ✅</div>`;
+      flawsEl.innerHTML = `<div class="text-slate-500 italic">В описании не найдены явные риски. Проверьте товар при встрече.</div>`;
     }
 
     // AI Summary
@@ -999,13 +789,13 @@ async function openItemModal(itemId) {
 
     const imgs = item.images && item.images.length > 0 ? item.images : (item.main_image ? [item.main_image] : []);
     if (imgs.length > 0) {
-      mainImg.src = imgs[0];
+      mainImg.src = safeDomUrl(imgs[0], '/static/img/no-image.svg');
       imgs.forEach((src, idx) => {
         const t = document.createElement('img');
-        t.src = src;
+        t.src = safeDomUrl(src, '/static/img/no-image.svg');
         t.className = `w-12 h-12 rounded object-cover cursor-pointer border ${idx === 0 ? 'border-blue-500' : 'border-white/[0.08] opacity-60 hover:opacity-100'} transition flex-shrink-0`;
         t.onclick = () => {
-          mainImg.src = src;
+          mainImg.src = safeDomUrl(src, '/static/img/no-image.svg');
           thumbsRow.querySelectorAll('img').forEach(x => x.className = 'w-12 h-12 rounded object-cover cursor-pointer border border-white/[0.08] opacity-60 hover:opacity-100 transition flex-shrink-0');
           t.className = 'w-12 h-12 rounded object-cover cursor-pointer border border-blue-500 transition flex-shrink-0';
         };
@@ -1033,6 +823,25 @@ async function openItemModal(itemId) {
   } catch (err) {
     showToast(err.message, 'error');
   }
+}
+
+function updateResaleCalculator() {
+  const buyField = document.getElementById('calc-buy');
+  const saleField = document.getElementById('calc-sale');
+  const costsField = document.getElementById('calc-costs');
+  const buy = Number(buyField.value), sale = Number(saleField.value), costs = Number(costsField.value || 0);
+  const valid = buyField.value !== '' && saleField.value !== '' && [buy, sale, costs].every(value => Number.isFinite(value) && value >= 0 && value <= 1000000000);
+  const row = document.getElementById('calc-result-row');
+  row.classList.remove('negative');
+  if (!valid) {
+    document.getElementById('calc-profit').textContent = '—';
+    document.getElementById('calc-margin').textContent = 'Заполните цены покупки и продажи';
+    return;
+  }
+  const profit = sale - buy - costs;
+  document.getElementById('calc-profit').textContent = formatPrice(profit);
+  document.getElementById('calc-margin').textContent = sale > 0 ? 'Маржа ' + (profit / sale * 100).toLocaleString('ru-RU', {maximumFractionDigits:1}) + '%' : 'Маржа не определена при цене продажи 0 ₽';
+  row.classList.toggle('negative', profit < 0);
 }
 
 const feedbackLabels = {helpful:'Полезно',false_positive:'Ложное срабатывание',bought:'Куплено',sold:'Продано',stale:'Неактуально'};
@@ -1151,7 +960,7 @@ async function requestItemAISummary() {
     if (res.status === 'success' && res.ai_summary) {
       aiSummaryEl.innerText = res.ai_summary;
       aiSummaryEl.className = 'text-xs text-slate-100 bg-blue-950/40 p-3 rounded-lg border border-blue-500/20 leading-relaxed font-sans';
-      
+
       const item = currentItemsMap.get(String(currentViewingItemId));
       if (item) item.ai_summary = res.ai_summary;
       showToast('AI-вердикт успешно сформирован!', 'success');

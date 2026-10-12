@@ -4,7 +4,7 @@ function canMutate() { return document.body?.dataset.role !== 'viewer'; }
 document.addEventListener('DOMContentLoaded', () => {
   if (canMutate()) return;
   const protect = () => document.querySelectorAll('button[onclick],button[data-write]').forEach(button => {
-    if (button.hasAttribute('data-write') || /(?:save|delete|clear|toggleFavorite|toggleModalFavorite|toggleHide|executeBatch|openAddSearch|triggerCheck|toggleMonitoring|requestItemAI|refreshItemDetails)/i.test(button.getAttribute('onclick') || '')) {
+    if (button.hasAttribute('data-write') || /(?:save|delete|clear|toggleFavorite|toggleModalFavorite|toggleHide|hideItem|toggleSearchItem|openEditSearch|executeBatch|openAddSearch|triggerCheck|checkSearchNow|toggleGlobalMonitoring|toggleMonitoring|requestItemAI|refreshItemDetails|startParsing|cancelParsing|retryHuman)/i.test(button.getAttribute('onclick') || '')) {
       button.disabled = true;
       button.title = 'Просмотр: изменение данных недоступно';
     }
@@ -15,12 +15,13 @@ document.addEventListener('DOMContentLoaded', () => {
 function htmlText(value) {
   return String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[char]));
 }
-function safeResourceUrl(value, fallback = '#') {
+function safeDomUrl(value, fallback = '#') {
   try {
     const url = new URL(value, location.origin);
-    return ['http:', 'https:'].includes(url.protocol) ? htmlText(url.href) : fallback;
+    return ['http:', 'https:'].includes(url.protocol) ? url.href : fallback;
   } catch { return fallback; }
 }
+function safeResourceUrl(value, fallback = '#') { return htmlText(safeDomUrl(value, fallback)); }
 window.fetch = (input, options = {}) => {
   const request = input instanceof Request ? input : null;
   const url = new URL(request ? request.url : String(input), location.href);
@@ -192,17 +193,25 @@ async function updateGlobalHeaderStatus() {
       searchesCntEl.innerText = `${data.stats.active_searches} / ${data.stats.total_searches}`;
     }
 
+    const sidebarItems = document.getElementById('sidebar-total-items-pill');
+    const sidebarSearches = document.getElementById('sidebar-active-searches-pill');
+    if (sidebarItems && data.stats) sidebarItems.textContent = data.stats.total_items.toLocaleString('ru-RU');
+    if (sidebarSearches && data.stats) sidebarSearches.textContent = data.stats.active_searches.toLocaleString('ru-RU');
     if (badgeEl && data.monitoring) {
       if (data.monitoring.is_running) {
-        badgeEl.className = 'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20';
-        badgeEl.innerHTML = '<span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse-live"></span> Мониторинг активен';
+        badgeEl.className = 'header-status running';
+        badgeEl.innerHTML = '<span class="status-dot"></span><span>Мониторинг включён</span>';
       } else {
-        badgeEl.className = 'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-slate-700/60 text-slate-400 border border-slate-600/40';
-        badgeEl.innerHTML = '<span class="w-2 h-2 rounded-full bg-slate-500"></span> Мониторинг на паузе';
+        badgeEl.className = 'header-status';
+        badgeEl.innerHTML = '<span class="status-dot"></span><span>Мониторинг на паузе</span>';
       }
     }
   } catch (e) {
-    // Ignore silent poll error
+    const badge = document.getElementById('global-monitor-status-badge');
+    if (badge) {
+      badge.className = 'header-status disconnected';
+      badge.innerHTML = '<span class="status-dot"></span><span>Нет соединения</span>';
+    }
   }
 }
 
@@ -228,7 +237,41 @@ function initGlobalApp() {
     lucide.createIcons();
   }
   updateGlobalHeaderStatus();
+  updateAccessAttention();
+  document.addEventListener('keydown', event => {
+    if (event.key !== '/' || event.ctrlKey || event.metaKey || event.altKey || event.target.closest('input,textarea,select,[contenteditable]')) return;
+    const field = document.getElementById('global-search');
+    if (field) { event.preventDefault(); field.focus(); }
+  });
   setInterval(updateGlobalHeaderStatus, 15000);
+  setInterval(updateAccessAttention, 10000);
+}
+
+async function updateAccessAttention() {
+  const banner = document.getElementById('access-attention');
+  if (!banner) return;
+  try {
+    const data = await apiFetch('/api/parser/attention');
+    const entry = data.jobs?.find(job => job.status === 'waiting_human') || data.jobs?.at(-1) || data.searches?.[0];
+    banner.hidden = !entry;
+    if (!entry) { document.title = document.title.replace(/^! /, ''); return; }
+    const description = document.getElementById('access-attention-text');
+    if (description.textContent !== entry.message) description.textContent = entry.message;
+    const dismiss = document.getElementById('access-dismiss');
+    dismiss.hidden = !entry.job_id || entry.status === 'waiting_human' || !canMutate();
+    dismiss.dataset.jobId = entry.job_id || '';
+    document.getElementById('access-attention-link').href = entry.job_id ? '/parser?job=' + encodeURIComponent(entry.job_id) : '/parser?manual=1&url=' + encodeURIComponent(entry.url);
+    if (!document.title.startsWith('! ')) document.title = '! ' + document.title;
+  } catch { /* A parser-specific warning must not replace the page's connection state. */ }
+}
+
+async function dismissAccessAttention() {
+  const job = document.getElementById('access-dismiss').dataset.jobId;
+  if (!job) return;
+  try {
+    await apiFetch('/api/parser/jobs/' + encodeURIComponent(job) + '/dismiss', {method:'POST'});
+    await updateAccessAttention();
+  } catch (error) { showToast(error.message, 'error'); }
 }
 
 if (document.readyState === 'loading') {
@@ -239,12 +282,15 @@ if (document.readyState === 'loading') {
 
 // Mobile navigation remains keyboard accessible and closes on Escape.
 const menuButton = document.getElementById('mobile-menu');
+let menuReturnFocus = null;
 function setMobileMenu(open) {
+  if (open) menuReturnFocus = document.activeElement;
   document.body.classList.toggle('nav-open', open);
   menuButton?.setAttribute('aria-expanded', String(open));
   const sidebar = document.getElementById('app-sidebar');
   if (sidebar) sidebar.inert = window.innerWidth < 768 && !open;
   if (open) sidebar?.querySelector('a')?.focus();
+  else if (menuReturnFocus?.isConnected) { menuReturnFocus.focus(); menuReturnFocus = null; }
 }
 menuButton?.addEventListener('click', () => setMobileMenu(!document.body.classList.contains('nav-open')));
 document.querySelector('.nav-shade')?.addEventListener('click', () => { setMobileMenu(false); menuButton?.focus(); });
