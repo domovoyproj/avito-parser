@@ -37,6 +37,7 @@ async def api_monitoring_status(
         else None,
         "current_checking": monitor_service.current_checking,
         "last_results": monitor_service.last_results,
+        "access_alerts": list(getattr(monitor_service, "access_alerts", {}).values()),
     }
 
 

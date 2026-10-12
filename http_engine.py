@@ -49,7 +49,7 @@ class AvitoHttpEngine:
                 pass
         return cookies_dict
 
-    async def parse_search(self, url: str, max_pages: int = 1) -> ParseResult:
+    async def parse_search(self, url: str, max_pages: int = 1, progress_callback=None, items_callback=None) -> ParseResult:
         """
         Быстрый HTTP парсинг поисковой выдачи через curl_cffi с TLS-мимикрией Chrome и сессионными куками.
         """
@@ -92,13 +92,19 @@ class AvitoHttpEngine:
                         page_items = extracted.items
 
                         new_on_page = 0
+                        new_items = []
                         for item in page_items:
                             if item.id not in seen_ids:
                                 seen_ids.add(item.id)
                                 all_items.append(item)
+                                new_items.append(item)
                                 new_on_page += 1
 
                         console.print(f"[green]✓ Страница {page_num}:[/green] получено {len(page_items)} объявлений")
+                        if items_callback and new_items:
+                            await items_callback(new_items)
+                        if progress_callback:
+                            await progress_callback(page_num, max_pages, len(all_items))
                         page_success = True
                         break
 

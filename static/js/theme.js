@@ -3,21 +3,30 @@
     document.documentElement.dataset.theme = theme;
     document.documentElement.classList.toggle('dark', theme === 'dark');
     document.querySelectorAll('.theme-switch').forEach(button => {
-      button.textContent = theme === 'dark' ? 'Светлая тема' : 'Тёмная тема';
-      button.setAttribute('aria-label', button.textContent);
+      const label = theme === 'dark' ? 'Светлая тема' : 'Тёмная тема';
+      button.innerHTML = '<i data-lucide="' + (theme === 'dark' ? 'sun' : 'moon') + '"></i>';
+      button.setAttribute('aria-label', label);
+      button.title = label;
     });
   }
-  let theme = 'dark';
-  try { theme = localStorage.getItem('avito-theme') || theme; } catch {}
+  let theme = 'light';
+  try { const saved = localStorage.getItem('avito-theme'); if (['light','dark'].includes(saved)) theme = saved; } catch {}
   apply(theme);
   document.addEventListener('DOMContentLoaded', () => {
     apply(theme);
     document.querySelectorAll('.theme-switch').forEach(button => button.addEventListener('click', () => {
       theme = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
       apply(theme);
+      if (window.lucide) lucide.createIcons();
+      document.dispatchEvent(new CustomEvent('themechange', {detail: theme}));
       try { localStorage.setItem('avito-theme', theme); } catch {}
     }));
     document.querySelectorAll('.nav-item.active').forEach(link => link.setAttribute('aria-current', 'page'));
+    document.querySelectorAll('label').forEach(label => {
+      if (label.htmlFor || label.querySelector('input,select,textarea')) return;
+      const field = label.parentElement.querySelector('input:not([type=hidden]),select,textarea');
+      if (field?.id) label.htmlFor = field.id;
+    });
     document.querySelectorAll('[id$="-modal"]').forEach(modal => {
       modal.setAttribute('role', 'dialog'); modal.setAttribute('aria-modal', 'true');
       const heading = modal.querySelector('h2, h3');

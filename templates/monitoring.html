@@ -1,34 +1,12 @@
 {% extends "base.html" %}
 
-{% block title %}Мониторинг — Avito Data Terminal{% endblock %}
+{% block title %}Поиски — Avito Max{% endblock %}
 
 {% block content %}
 <div class="max-w-7xl mx-auto space-y-5">
 
-  <!-- Header -->
-  <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-2 border-b border-white/[0.06]">
-    <div>
-      <div class="flex items-center gap-2.5">
-        <h1 class="text-xl font-bold text-white tracking-tight">Задачи Мониторинга</h1>
-        <span class="text-xs font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-400 border border-white/[0.06]" id="searches-count-badge">
-          0 задач
-        </span>
-      </div>
-      <p class="text-slate-400 text-xs mt-0.5">Периодический опрос выдачи, отслеживание новинок и фиксация падений цен</p>
-    </div>
-
-    <div class="flex items-center gap-2">
-      <button onclick="triggerCheckAll()" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-900 hover:bg-slate-800 text-slate-300 border border-white/[0.08] transition flex items-center gap-1.5">
-        <i data-lucide="refresh-cw" class="w-3.5 h-3.5 text-blue-400"></i>
-        <span>Проверить все</span>
-      </button>
-      <button onclick="openAddSearchModal()" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-blue-600 hover:bg-blue-500 text-white transition flex items-center gap-1.5 shadow-sm">
-        <i data-lucide="plus" class="w-3.5 h-3.5"></i>
-        <span>Добавить задачу</span>
-      </button>
-    </div>
-  </div>
-
+  <div class="page-heading"><div><div class="eyebrow">Рынок под наблюдением</div><h1>Ваши поиски <span id="searches-count-badge" class="badge-soft">Загрузка…</span></h1><p>Новые предложения и изменения цены — по вашему расписанию.</p></div><div class="page-actions"><button onclick="triggerCheckAll()" class="button-secondary" data-write><i data-lucide="refresh-cw"></i>Проверить все</button><button onclick="openAddSearchModal()" class="button-primary" data-write><i data-lucide="plus"></i>Добавить поиск</button></div></div>
+  <div id="monitoring-error" class="inline-error" hidden role="alert">Не удалось загрузить поиски. <button onclick="loadMonitoringPage()" class="button-secondary">Повторить</button></div>
   <!-- MASTER CONTROLLER STATUS CARD -->
   <div class="panel-card p-4">
     <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -39,7 +17,7 @@
         <div>
           <div class="flex items-center gap-2">
             <h3 class="text-sm font-bold text-white">Фоновый Сервис Опроса</h3>
-            <span id="mon-status-pill" class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">АКТИВЕН</span>
+            <span id="mon-status-pill" class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">Загрузка…</span>
           </div>
           <div class="text-xs text-slate-400 mt-0.5 flex items-center gap-3 font-mono text-[11px]">
             <div>Активно: <strong id="mon-active-count" class="text-white">0</strong></div>
@@ -53,7 +31,7 @@
 
       <div>
         <button onclick="toggleGlobalMonitoring()" id="btn-master-toggle" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-900 hover:bg-slate-800 text-slate-300 border border-white/[0.08] transition">
-          Остановить мониторинг
+          Загрузка…
         </button>
       </div>
     </div>
@@ -62,7 +40,7 @@
   <!-- SEARCHES LIST TABLE -->
   <div class="panel-card p-4 space-y-3">
     <div class="flex items-center justify-between pb-2.5 border-b border-white/[0.06]">
-      <h3 class="text-xs font-bold text-white uppercase tracking-wider font-mono">Список Активных Задач</h3>
+      <h3 class="text-xs font-bold text-white uppercase tracking-wider font-mono">Сохранённые поиски</h3>
       <span class="text-[11px] text-slate-500 font-mono" id="searches-count-text">Всего: 0</span>
     </div>
 
@@ -71,7 +49,7 @@
         <thead>
           <tr class="text-slate-500 font-mono text-[10px] uppercase tracking-wider border-b border-white/[0.06] pb-2">
             <th class="py-2.5 px-3">Статус</th>
-            <th class="py-2.5 px-3">Название & Ссылка</th>
+            <th class="py-2.5 px-3">Название и источник</th>
             <th class="py-2.5 px-3">Интервал</th>
             <th class="py-2.5 px-3">Товары</th>
             <th class="py-2.5 px-3">Посл. проверка</th>
@@ -203,6 +181,7 @@
 {% block scripts %}
 <script>
 let searchesList = [];
+let searchAccessAlerts = [];
 
 async function loadMonitoringPage() {
   try {
@@ -211,6 +190,8 @@ async function loadMonitoringPage() {
       apiFetch('/api/searches')
     ]);
 
+    document.getElementById("monitoring-error").hidden = true;
+    searchAccessAlerts = statusData.access_alerts || [];
     // Status widget
     const isRunning = statusData.is_running;
     const pill = document.getElementById('mon-status-pill');
@@ -240,14 +221,16 @@ async function loadMonitoringPage() {
     document.getElementById('mon-active-count').innerText = `${activeCount} / ${searchesList.length}`;
     document.getElementById('searches-count-text').innerText = `Всего: ${searchesList.length}`;
     const badge = document.getElementById('searches-count-badge');
-    if (badge) badge.innerText = `${searchesList.length} задач`;
+    if (badge) badge.innerText = `${searchesList.length} поисков`;
 
     renderSearchesTable();
     updateRunSearchFilter();
     loadMonitoringRuns();
 
   } catch (err) {
-    console.error('Error loading monitoring page:', err);
+    document.getElementById('monitoring-error').hidden = false;
+    document.getElementById('mon-status-pill').textContent = 'Нет соединения';
+    document.getElementById('searches-tbody').innerHTML = '<tr><td colspan="6" class="p-5">Список поисков не получен. Используйте «Повторить» выше.</td></tr>';
   }
 }
 
@@ -328,8 +311,8 @@ function renderSearchesTable() {
       </td>
       <td class="py-3 px-3">
         <div class="font-semibold text-slate-200 text-xs">${htmlText(s.name)}</div>
-        <a href="${s.url}" target="_blank" class="text-[11px] text-blue-400 hover:text-blue-300 truncate block max-w-sm font-mono mt-0.5" title="${s.url}">
-          ${s.url}
+        <a href="${safeResourceUrl(s.url)}" target="_blank" rel="noopener noreferrer" class="text-[11px] text-blue-400 hover:text-blue-300 truncate block max-w-sm font-mono mt-0.5" title="${htmlText(s.url)}">
+          ${htmlText(s.url)}
         </a>
       </td>
       <td class="py-3 px-3 text-slate-300 font-mono text-xs">
@@ -342,7 +325,8 @@ function renderSearchesTable() {
         </a>
       </td>
       <td class="py-3 px-3 text-[11px] text-slate-400 font-mono">
-        ${formatRelativeTime(s.last_checked_at)}
+        ${htmlText(formatRelativeTime(s.last_checked_at))}
+        ${searchAccessAlerts.some(a=>a.search_id===s.id) ? '<a class="access-inline-link" href="/parser?url=' + encodeURIComponent(s.url) + '">Ограничен доступ · проверить</a>' : ''}
         ${s.enabled && s.last_checked_at && Date.now() - new Date(s.last_checked_at).getTime() > Math.max(10, 2 * (s.check_interval_min || 10)) * 60000 ? '<span class="block text-amber-300">Проверка задерживается</span>' : ''}
       </td>
       <td class="py-3 px-3 text-right space-x-1 whitespace-nowrap">
@@ -376,7 +360,8 @@ async function checkSearchNow(id) {
   try {
     showToast('Опрос задачи запущен...', 'info');
     const res = await apiFetch(`/api/searches/${id}/check`, { method: 'POST' });
-    showToast(`Проверка завершена: новых ${res.results.new}, скидок ${res.results.drops}`, 'success');
+    const blocked = res.results.outcome === 'blocked' || res.results.error_type === 'AccessCooldown';
+    showToast(blocked ? 'Авито ограничил доступ. Поиск на паузе; пройдите ручную проверку.' : res.results.outcome === 'error' ? 'Проверка не завершена. Посмотрите историю ошибок.' : `Проверка завершена: новых ${res.results.new}, скидок ${res.results.drops}`, blocked ? 'warning' : res.results.outcome === 'error' ? 'error' : 'success');
     loadMonitoringPage();
   } catch (e) {
     showToast(e.message, 'error');
@@ -489,6 +474,7 @@ async function saveSearch(e) {
 
 function initMonitoringPage() {
   loadMonitoringPage();
+  if (new URLSearchParams(location.search).get('new') === '1' && canMutate()) openAddSearchModal();
   setInterval(loadMonitoringPage, 12000);
 }
 

@@ -1,37 +1,47 @@
 {% extends "base.html" %}
-{% block title %}Обзор — Avito Max{% endblock %}
+{% block title %}Обзор рынка — Avito Max{% endblock %}
 {% block content %}
 <div class="overview">
   <div class="overview-heading">
-    <div><div class="eyebrow">Avito Max · Обзор</div><h1>Рынок под вашим контролем.</h1><p>Поиски, динамика цен и лучшие находки — в одном пространстве.</p></div>
-    <a href="/monitoring" class="workspace-btn primary">＋ Добавить поиск</a>
+    <div><div class="eyebrow" id="overview-date">Ваше рабочее пространство</div><h1>Ваш рынок сегодня</h1><p>Новые находки, изменения цен и предложения, которые стоит проверить.</p></div>
+    <div class="page-actions"><a href="/items" class="button-secondary"><i data-lucide="gallery-vertical-end"></i>Все находки</a>{% if user.role != 'viewer' %}<a href="/monitoring?new=1" class="button-primary"><i data-lucide="plus"></i>Добавить поиск</a>{% endif %}</div>
   </div>
-  <div id="overview-error" class="workspace-error" role="alert" hidden><span id="overview-error-text"></span> <button id="overview-retry" class="workspace-btn">Повторить</button></div>
+  <div id="overview-error" class="workspace-error" role="alert" hidden><span id="overview-error-text"></span><button id="overview-retry" class="button-secondary">Повторить</button></div>
   <section id="onboarding" class="onboarding" hidden>
-    <div class="eyebrow">Три шага до первой находки</div><h2>Начните с того, что ищете</h2>
-    <p>1. Настройте поиск на Авито и скопируйте ссылку.<br>2. Добавьте её в мониторинг.<br>3. Включите проверку — новые объявления появятся в каталоге.</p>
-    <a class="workspace-btn primary" href="/monitoring">Создать первый поиск →</a>
-    <a class="workspace-btn" href="/parser">Разовый сбор</a>
+    <div class="eyebrow">Первая находка</div><h2>Что вы хотите найти?</h2>
+    <p>Укажите модель или вставьте ссылку на поиск Авито. Соберите объявления, сравните цены и сохраните интересные предложения в свой список.</p>
+    <a class="button-primary" href="/parser">Найти объявления <i data-lucide="arrow-right"></i></a>
+    <a class="button-secondary" href="/monitoring?new=1">Настроить регулярный поиск</a>
   </section>
-  <div class="metrics" aria-label="Статистика">
-    <a class="metric" href="/items"><div class="metric-label">Объявлений в каталоге ↗</div><div id="metric-items" class="metric-value-new">—</div><div id="metric-today" class="metric-foot">Загрузка…</div></a>
-    <a class="metric" href="/items?deal_grade=HOT"><div class="metric-label">Выгодных предложений ↗</div><div id="metric-deals" class="metric-value-new">—</div><div class="metric-foot">Оценка от 70 из 100</div></a>
-    <a class="metric" href="/monitoring"><div class="metric-label">Активных поисков ↗</div><div id="metric-searches" class="metric-value-new">—</div><div id="metric-total-searches" class="metric-foot">Загрузка…</div></a>
-    <a class="metric" href="/price-drops"><div class="metric-label">Снижений цены ↗</div><div id="metric-drops" class="metric-value-new">—</div><div id="metric-drops-today" class="metric-foot">Загрузка…</div></a>
+  <div class="metrics" aria-label="Статистика вашей базы">
+    <a class="metric" href="/items"><div class="metric-label"><i data-lucide="layers"></i>Объявления</div><i data-lucide="arrow-up-right" class="metric-arrow"></i><div id="metric-items" class="metric-value-new">—</div><div id="metric-today" class="metric-foot">Загрузка…</div></a>
+    <a class="metric" href="/items?deal_grade=HOT"><div class="metric-label"><i data-lucide="sparkles"></i>Выгодные предложения</div><i data-lucide="arrow-up-right" class="metric-arrow"></i><div id="metric-deals" class="metric-value-new">—</div><div class="metric-foot">С оценкой от 70 из 100</div></a>
+    <a class="metric" href="/price-drops"><div class="metric-label"><i data-lucide="trending-down"></i>Снижения цены</div><i data-lucide="arrow-up-right" class="metric-arrow"></i><div id="metric-drops" class="metric-value-new">—</div><div id="metric-drops-today" class="metric-foot">Загрузка…</div></a>
+    <a class="metric" href="/monitoring"><div class="metric-label"><i data-lucide="radar"></i>Активные поиски</div><i data-lucide="arrow-up-right" class="metric-arrow"></i><div id="metric-searches" class="metric-value-new">—</div><div id="metric-total-searches" class="metric-foot">Загрузка…</div></a>
   </div>
   <div class="workspace-columns">
     <div>
-      <section class="workspace-panel"><div class="section-heading"><h2>Ваши поиски</h2><a href="/monitoring" class="workspace-link">Управлять →</a></div><div id="overview-searches" aria-live="polite"><div class="workspace-empty">Загружаем поиски…</div></div></section>
-      <section class="workspace-panel"><div class="section-heading"><h2>Лучшие находки</h2><a href="/items?deal_grade=HOT" class="workspace-link">В каталог →</a></div><div id="overview-deals" class="deal-grid"><div class="workspace-empty">Загружаем объявления…</div></div></section>
-      <section class="workspace-panel"><div class="section-heading"><h2>Недавно добавлены</h2><a href="/items" class="workspace-link">Все объявления →</a></div><div id="overview-recent" class="deal-grid"></div></section>
+      <section class="workspace-panel">
+        <div class="section-heading"><h2>Стоит присмотреться</h2><a href="/items?deal_grade=HOT" class="workspace-link">Все выгодные <span>↗</span></a></div>
+        <p class="section-caption">Высокая оценка — повод изучить объявление. Детали и риски есть в карточке.</p>
+        <div id="overview-deals" class="deal-grid" aria-live="polite"><div class="workspace-empty">Ищем лучшие предложения в вашей базе…</div></div>
+        <details class="score-guide"><summary>Что означает оценка?</summary><p>85–100 — особенно интересное предложение, 70–84 — выгодное, 50–69 — обычное. Ниже 50 — есть причины для осторожности. Оценка учитывает цену, продавца и описание; она не гарантирует состояние товара или прибыль. Полнота данных показывает, сколько сигналов удалось получить.</p></details>
+      </section>
+      <section class="workspace-panel"><div class="section-heading"><h2>Свежие поступления</h2><a href="/items?sort_by=newest" class="workspace-link">Открыть каталог <span>↗</span></a></div><div id="overview-recent" class="recent-list" aria-live="polite"><div class="workspace-empty">Загружаем объявления…</div></div></section>
+      <section class="workspace-panel"><div class="section-heading"><h2>Ваши поиски</h2><a href="/monitoring" class="workspace-link">Управлять <span>↗</span></a></div><div id="overview-searches" aria-live="polite"><div class="workspace-empty">Загружаем поиски…</div></div></section>
     </div>
     <div>
-      <section class="workspace-panel"><div class="section-heading"><h2>Мониторинг</h2><span id="overview-monitor" class="monitor-indicator">Загрузка</span></div><p id="overview-checking">Проверяем состояние…</p><div class="monitor-meta"><div class="workspace-muted">Последняя проверка<strong id="overview-last">—</strong></div><div class="workspace-muted">Следующая проверка<strong id="overview-next">—</strong></div></div><div class="monitor-actions"><button id="overview-toggle" class="workspace-btn primary" disabled>Загрузка…</button><button id="overview-check" class="workspace-btn" disabled>Проверить сейчас</button></div></section>
-      <section class="workspace-panel"><div class="section-heading"><h2>Быстрые действия</h2></div><div class="quick-links"><a href="/parser" class="quick-link"><strong>↗ Собрать объявления</strong><span class="workspace-muted">Разовый сбор по ссылке на выдачу</span></a><a href="/price-drops" class="quick-link"><strong>↘ Посмотреть скидки</strong><span class="workspace-muted">История снижения цен</span></a><a href="/api/export/excel" class="quick-link"><strong>↓ Скачать Excel</strong><span class="workspace-muted">Каталог для дальнейшей работы</span></a><a href="/settings" class="quick-link"><strong>◎ Настроить уведомления</strong><span id="overview-telegram" class="workspace-muted">Telegram и параметры поиска</span></a></div></section>
-      <section class="workspace-panel"><h2>Как читать оценку?</h2><p style="margin-top:12px;font-size:13px">85–100 — особенно интересная находка.<br>70–84 — выгодное предложение.<br>Оценка учитывает цену, продавца и качество объявления. Проверяйте товар перед покупкой.</p></section>
+      <section class="workspace-panel monitor-card">
+        <div class="section-heading"><h2>Мониторинг</h2><span id="overview-monitor" class="monitor-indicator">Загрузка</span></div>
+        <p id="overview-checking">Получаем состояние поисков…</p>
+        <div class="monitor-meta"><div class="workspace-muted">Последняя проверка<strong id="overview-last">—</strong></div><div class="workspace-muted">Следующая проверка<strong id="overview-next">—</strong></div></div>
+        <div class="monitor-actions"><button id="overview-toggle" class="button-primary" disabled>Загрузка…</button><button id="overview-check" class="button-secondary" disabled>Проверить сейчас</button></div>
+      </section>
+      <section class="workspace-panel"><div class="section-heading"><h2>Цены в каталоге</h2></div><p class="section-caption">Доступные объявления по бюджету</p><div id="overview-budget" class="budget-chart"><div class="loading-line">Загрузка…</div></div></section>
+      <section class="workspace-panel"><div class="section-heading"><h2>Не упустите цену</h2><i data-lucide="bell-ring" style="width:19px;color:var(--accent)"></i></div><p style="font-size:13px;margin:0 0 16px">Сохраните объявление и укажите цену, по которой готовы купить. Список поможет вернуться к нему вовремя.</p><a href="/watchlists" class="workspace-link">Открыть мои списки ↗</a>{% if user.role == 'admin' %}<p id="overview-telegram" style="font-size:11px;margin:17px 0 0">Получаем статус уведомлений…</p>{% else %}<span id="overview-telegram" hidden></span>{% endif %}</section>
     </div>
   </div>
   <footer id="overview-updated" aria-live="polite">Подключаемся к вашей базе…</footer>
 </div>
 {% endblock %}
-{% block scripts %}<script src="/static/js/overview.js"></script>{% endblock %}
+{% block scripts %}<script src="/static/js/overview.js?v=2.6.0"></script>{% endblock %}

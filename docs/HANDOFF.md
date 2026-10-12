@@ -1,5 +1,23 @@
 # Передача работы другой модели
 
+## Обновление 2.6.0 — 2026-10-12
+
+Ветка feat/reseller-workspace-2.6: полноценный визуальный редизайн и управляемая проверка CAPTCHA. Прототип до реализации — docs/design-prototype.html. Палитра: светлый тёплый фон, графитово-зелёная навигация, evergreen/lime акценты; без удалённых шрифтов, вымышленных фотографий и mock-метрик в production. Все экраны используют design-system.css/workspace.css; styles.css — небольшой слой совместимости.
+
+Приоритеты продукта: Обзор → Находки → Поиски → Мои списки/Снижения цены. Служебные экраны — в «Дополнительно». Каталог: цена, оценка, причина, действие; карточки/таблица; частые фильтры на виду, личные фильтры и обслуживание свёрнуты. В карточке — расчёт перепродажи по введённым ценам/расходам, не прогноз продажи. Новый сбор принимает название либо ссылку, имеет реальные cancel/status/recovery.
+
+access_guard.py отличает страницу проверки от CAPTCHA SDK. Browser engine ожидает ручную проверку до 5 минут, не подтверждает её по одному исчезнувшему заголовку, прекращает после третьего challenge. Результаты браузерного/HTTP сбора сохраняются по страницам. parser jobs различают completed/blocked/error/cancelled и outcome; тайм-аут зависит от глубины. Новые GET snapshot/attention и POST retry-human/dismiss добавлены без удаления прежних endpoint-ов/WS. Мониторинг после блокировок: 5/15/60 минут паузы, общий заметный баннер, снятие предупреждения после успешного ручного сбора. Задачи и circuit breaker в памяти процесса: restart сбрасывает их, но не каталог/SQLite историю.
+
+Видимый Chromium работает на компьютере сервера. Linux без DISPLAY и заблокированный рабочий стол не подходят. Авто-решатель и внешние CAPTCHA-сервисы не подключены. TUN-VPN не отключался, маршруты не менялись; требуется доступный маршрут Авито или отдельный рабочий прокси. Live Avito с текущим VPN не подтверждён. Автоповтор блокировки не нужен.
+
+Проверки на временных БД: run_offline_tests.py — 77 unit tests и 3 regression scripts; test_parser_jobs — 9 специальных сценариев; Ruff E9/F63/F7/F82; pip-audit constraints — 0; npm audit --omit=dev — 0. Расширенный Chromium smoke: 13 экранов ×360/768/1440, theme persistence, login 429 countdown, menu/focus/Escape, карточки/таблица, фильтры, feedback/watchlist/export, калькулятор, error/retry, blocked/manual/cancelled/reload, XSS и роли. Screenshots before/after — ui-artifacts/ (не коммитить), CI artifact ui-screenshots. Перед публикацией проверить свежий CI, не подменять его локальными результатами.
+
+Полный npm audit имеет 5 high advisory paths в dev-зависимостях Tailwind 3/braces (GHSA-vfj7-8cjw-p6xm, для braces 3.0.3 пока нет исправленной версии). Они не входят в runtime/release; build работает с доверенными шаблонами. PostCSS selector parser обновлён override 7.1.6, moderate advisory устранён. Следующая отдельная задача — миграция Tailwind toolchain с проверкой воспроизводимого CSS.
+
+VERSION в version.py — единая версия API/UI/архивов. Windows stdout/stderr настроены на UTF-8; архив включает новые модули и start_panel/start_web. Схема БД по-прежнему 10, авторизация не менялась. Не закрывать #10/#13 до live-интеграций; следующий шаг — безопасная проверка маршрута Авито и ручная CAPTCHA на реальном источнике, затем Telegram/webhook/LLM.
+
+## Предыдущий этап
+
 Пользователь поручил весь roadmap, включая полноценное обновление UI. Базовая реализация [PR #14](https://github.com/domovoyproj/avito-parser/pull/14) уже в `main`. Затем отдельными PR выполнены четыре дополнительные Issue: [#17 → PR #19](https://github.com/domovoyproj/avito-parser/pull/19) (история мониторинга), [#15 → PR #20](https://github.com/domovoyproj/avito-parser/pull/20) (личные списки и адресные алерты), [#16 → PR #21](https://github.com/domovoyproj/avito-parser/pull/21) (обратная связь о скоринге), [#18 → PR #22](https://github.com/domovoyproj/avito-parser/pull/22) (FTS5-поиск и сохранённые фильтры). Все четыре влиты и прошли CI. Актуальный статус: [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md).
 
 ## Архитектура

@@ -1,4 +1,12 @@
-# Статус апгрейда — 2026-10-04
+# Статус апгрейда — 2026-10-12
+
+## 2.6.0: рабочее пространство реселлера
+
+Полный визуальный редизайн (прототип в docs/design-prototype.html), светлая/тёмная темы, компактная навигация, реальные данные обзора, карточки/таблица каталога, фильтры, детали и расчёт перепродажи, организация настроек. Добавлены page-wise сохранение, честные blocked/partial/empty/error/cancelled outcomes, снимок задачи после reload, видимая ручная CAPTCHA с таймером и лимитом повторений, предупреждение на каждом экране и backoff 5/15/60 минут у мониторинга. Сохранены FastAPI/Jinja2/SQLite, API/auth и схема 10.
+
+Локально: 77 unit tests + 3 regression scripts; 9 новых сценариев доступа/задач; расширенный 13-page Chromium smoke 360/768/1440 без browser errors; Ruff/diff check; pip-audit и npm runtime audit — 0. Полный npm audit: 5 high dev-only paths Tailwind 3/braces без upstream patch; PostCSS moderate исправлен. Точный PR/CI и артефакты публикуются в #10/#13. Live Avito с текущим TUN-VPN, Telegram/webhook/LLM и внешнее production-развёртывание не подтверждены. Проверка CAPTCHA вручную требует рабочего стола сервера.
+
+## Предыдущие реализации
 
 Roadmap #13, базовая реализация [PR #14](https://github.com/domovoyproj/avito-parser/pull/14) влита. Дополнительные направления: история мониторинга [PR #19](https://github.com/domovoyproj/avito-parser/pull/19), личные списки [PR #20](https://github.com/domovoyproj/avito-parser/pull/20), обратная связь о скоринге [PR #21](https://github.com/domovoyproj/avito-parser/pull/21) и поиск [PR #22](https://github.com/domovoyproj/avito-parser/pull/22) влиты и прошли CI. Production-развёртывание и live-интеграции не выполнены; Issues остаются открыты до проверки установки.
 

@@ -32,6 +32,21 @@ class MonitoringService:
         self.next_run: Optional[datetime] = None
         self.current_checking: Optional[str] = None
         self.last_results: Dict[str, Any] = {"new": 0, "drops": 0, "errors": 0}
+        self.access_alerts: Dict[int, Dict[str, Any]] = {}
+
+    def clear_access_alert(self, url):
+        for search_id, alert in list(self.access_alerts.items()):
+            if alert['url'] == url:
+                self.access_alerts.pop(search_id, None)
+
+    def _access_failure(self, search):
+        previous = self.access_alerts.get(search.id, {})
+        count = previous.get('count', 0) + 1
+        pause = (300, 900, 3600)[min(count - 1, 2)]
+        self.access_alerts[search.id] = {
+            'search_id': search.id, 'name': search.name, 'url': search.url, 'count': count,
+            'retry_at': time.time() + pause,
+            'message': f'Авито ограничил доступ ({count}). Поиск на паузе {pause // 60} мин. Проверьте VPN и пройдите проверку в видимом браузере.'}
 
     async def start(self):
         if self.is_running:
@@ -62,11 +77,19 @@ class MonitoringService:
         error_type = None
         lock = self._search_locks.setdefault(search.id, asyncio.Lock())
         try:
+            alert = self.access_alerts.get(search.id)
+            if alert and alert['retry_at'] > time.time():
+                result = {"new": 0, "drops": 0, "skipped": 1, "outcome": "skipped", "error_type": "AccessCooldown"}
+                return result
             if not lock.locked():
                 async with lock:
                     async with lease(f"search:{search.id}") as acquired:
                         if acquired:
                             result = await asyncio.wait_for(self._check_search(search), timeout=180)
+                            if result.get('outcome') == 'blocked':
+                                self._access_failure(search)
+                            elif result.get('outcome') in ('success', 'empty'):
+                                self.clear_access_alert(search.url)
             return result
         except asyncio.CancelledError:
             error_type = "CancelledError"
@@ -187,6 +210,7 @@ class MonitoringService:
     async def _run_all_now(self, due_only=False) -> Dict[str, int]:
         """Принудительная проверка всех включенных поисков (параллельно, макс. 3 одновременно)"""
         searches = await db.get_searches(enabled_only=True)
+        searches = [search for search in searches if self.access_alerts.get(search.id, {}).get('retry_at', 0) <= time.time()]
         if due_only:
             now = datetime.now()
             searches = [s for s in searches if s.last_checked_at is None or

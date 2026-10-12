@@ -37,6 +37,7 @@ from parser_core import AvitoDataExtractor
 from proxy_manager import ProxyManager, proxy_manager
 from security import login_limiter, same_origin, avito_url
 from observability import RedactingFilter, redact
+from version import VERSION
 
 # --- Логирование и кольцевой буфер для Веб-панели ---
 class WebLogBuffer(logging.Handler):
@@ -122,7 +123,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Avito Parser Pro Web Panel",
     description="Современная веб-панель управления парсером, базой объявлений и мониторингом Авито",
-    version="2.0.0",
+    version=VERSION,
     lifespan=lifespan
 )
 
@@ -214,7 +215,7 @@ def render_auth_page(page_name: str, admin_only: bool = False):
         return templates.TemplateResponse(
             request=request,
             name=f"{page_name}.html",
-            context={"page": page_name, "user": user.model_dump(mode="json")}
+            context={"page": page_name, "user": user.model_dump(mode="json"), "app_version": VERSION}
         )
     return _handler
 
@@ -330,6 +331,10 @@ async def api_clear_logs():
 # ==============================================================================
 
 def run_server(host: Optional[str] = None, port: Optional[int] = None, open_browser: bool = True):
+    # Windows redirected output can otherwise fail on the very first emoji.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, 'reconfigure'):
+            stream.reconfigure(encoding='utf-8', errors='replace')
     h = host or config.web.host
     p = port or config.web.port
     browser_host = "127.0.0.1" if h in ("0.0.0.0", "::") else h
