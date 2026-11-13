@@ -41,6 +41,23 @@ class StorageTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(left[1], right[0])
             self.assertEqual(await (await connection.execute("PRAGMA foreign_key_check")).fetchall(), [])
 
+    async def test_search_refresh_preserves_detail_evidence_for_scoring(self):
+        from models import SellerInfo
+        detailed=AvitoItem(id='details',title='Fixture',price=100,url='https://www.avito.ru/fixture',
+                          description='Описание из карточки',images=['https://example.com/image.jpg'],
+                          main_image='https://example.com/image.jpg',params={'Память':'16 ГБ'},
+                          seller=SellerInfo(name='Продавец',rating=4.9,reviews_count=50,is_verified=True))
+        original, *_ = await self.db.save_item(detailed)
+        await self.db.save_item(AvitoItem(id='details',title='Fixture',price=90,url=detailed.url,
+                                        params={'Цвет':'Синий'},seller=SellerInfo(name='Продавец')))
+        refreshed=await self.db.get_item_by_id('details')
+        self.assertEqual(refreshed.description,detailed.description)
+        self.assertEqual(refreshed.images,detailed.images)
+        self.assertEqual(refreshed.params,{'Память':'16 ГБ','Цвет':'Синий'})
+        self.assertEqual(refreshed.seller.rating,4.9)
+        self.assertTrue(refreshed.seller.is_verified)
+        self.assertEqual(refreshed.score_confidence,original.score_confidence)
+
     async def test_backup_upgrade_and_restore(self):
         await self.db.save_item(AvitoItem(id="backup", title="Backup", price=100, url="https://www.avito.ru/backup"))
         started=asyncio.Event()

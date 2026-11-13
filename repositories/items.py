@@ -26,10 +26,26 @@ class ItemsRepository:
             db.row_factory = aiosqlite.Row
             await db.execute("BEGIN IMMEDIATE")
             cursor = await db.execute(
-                "SELECT id, price, old_price, ai_summary FROM items WHERE id = ?",
+                "SELECT * FROM items WHERE id = ?",
                 (item.id,),
             )
             row = await cursor.fetchone()
+
+            # Search cards contain fewer fields than detail pages. Preserve
+            # known evidence before scoring and hashing a partial refresh.
+            if row is not None:
+                stored = self._row_to_item(row)
+                for field in ('description', 'address', 'metro', 'published_at', 'main_image', 'category', 'ai_summary'):
+                    if getattr(item, field) is None:
+                        setattr(item, field, getattr(stored, field))
+                if not item.images:
+                    item.images = stored.images
+                item.params = {**stored.params, **item.params}
+                if item.seller is None:
+                    item.seller = stored.seller
+                elif stored.seller is not None:
+                    item.seller = SellerInfo.model_validate({
+                        **stored.seller.model_dump(), **item.seller.model_dump(exclude_unset=True, exclude_none=True)})
 
             # Автоматический расчет скоринга сделки
             market_med, market_avg = market_stats if market_stats is not None else await self.get_search_market_stats(item.search_query_id)
@@ -42,8 +58,7 @@ class ItemsRepository:
             item.deal_grade = deal_grade
             item.deal_reasons = deal_reasons
             item.detected_flaws = detected_flaws
-            if deal_grade in ("GEM", "HOT"):
-                item.is_hot_deal = True
+            item.is_hot_deal = deal_grade in ("GEM", "HOT")
 
             images_json = json.dumps(item.images, ensure_ascii=False)
             params_json = json.dumps(item.params, ensure_ascii=False)

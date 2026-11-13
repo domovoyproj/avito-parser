@@ -2,10 +2,13 @@
 {% block title %}Обзор рынка — Avito Max{% endblock %}
 {% block content %}
 <div class="overview">
-  <div class="overview-heading">
-    <div><div class="eyebrow" id="overview-date">Ваше рабочее пространство</div><h1>Ваш рынок сегодня</h1><p>Новые находки, изменения цен и предложения, которые стоит проверить.</p></div>
-    <div class="page-actions"><a href="/items" class="button-secondary"><i data-lucide="gallery-vertical-end"></i>Все находки</a>{% if user.role != 'viewer' %}<a href="/monitoring?new=1" class="button-primary"><i data-lucide="plus"></i>Добавить поиск</a>{% endif %}</div>
-  </div>
+  <section class="radar-hero" aria-labelledby="radar-title">
+    <div><div class="eyebrow" id="overview-date">Радар вашего рынка</div><h1 id="radar-title">Хорошие предложения.<br>В нужный момент.</h1><p>Сравнивайте лоты, следите за ценами и получайте уведомления о находках, которые подходят именно вам.</p>
+      <div class="page-actions">{% if user.role != 'viewer' %}<a href="/monitoring?new=1" class="button-primary"><i data-lucide="plus"></i>Настроить поиск</a>{% endif %}<a href="/items" class="button-secondary">Смотреть находки <i data-lucide="arrow-up-right"></i></a></div>
+    </div>
+    <div class="radar-process"><div class="radar-step"><span>01</span><div><strong>Укажите, что ищете</strong>Модель, бюджет и регион</div></div><div class="radar-step"><span>02</span><div><strong>Сравните предложения</strong>Цена, состояние и продавец</div></div><div class="radar-step"><span>03</span><div><strong>Узнайте о находке</strong>Telegram и личные списки</div></div></div>
+  </section>
+  <div class="radar-strip"><i data-lucide="shield-check"></i><p id="radar-source-status" aria-live="polite">Проверяем доступность сбора…</p><a href="/monitoring">Состояние поисков ↗</a></div>
   <div id="overview-error" class="workspace-error" role="alert" hidden><span id="overview-error-text"></span><button id="overview-retry" class="button-secondary">Повторить</button></div>
   <section id="onboarding" class="onboarding" hidden>
     <div class="eyebrow">Первая находка</div><h2>Что вы хотите найти?</h2>
@@ -22,7 +25,7 @@
   <div class="workspace-columns">
     <div>
       <section class="workspace-panel">
-        <div class="section-heading"><h2>Стоит присмотреться</h2><a href="/items?deal_grade=HOT" class="workspace-link">Все выгодные <span>↗</span></a></div>
+        <div class="section-heading"><h2>В фокусе радара</h2><a href="/items?deal_grade=HOT" class="workspace-link">Все выгодные <span>↗</span></a></div>
         <p class="section-caption">Высокая оценка — повод изучить объявление. Детали и риски есть в карточке.</p>
         <div id="overview-deals" class="deal-grid" aria-live="polite"><div class="workspace-empty">Ищем лучшие предложения в вашей базе…</div></div>
         <details class="score-guide"><summary>Что означает оценка?</summary><p>85–100 — особенно интересное предложение, 70–84 — выгодное, 50–69 — обычное. Ниже 50 — есть причины для осторожности. Оценка учитывает цену, продавца и описание; она не гарантирует состояние товара или прибыль. Полнота данных показывает, сколько сигналов удалось получить.</p></details>
@@ -38,10 +41,10 @@
         <div class="monitor-actions"><button id="overview-toggle" class="button-primary" disabled>Загрузка…</button><button id="overview-check" class="button-secondary" disabled>Проверить сейчас</button></div>
       </section>
       <section class="workspace-panel"><div class="section-heading"><h2>Цены в каталоге</h2></div><p class="section-caption">Доступные объявления по бюджету</p><div id="overview-budget" class="budget-chart"><div class="loading-line">Загрузка…</div></div></section>
-      <section class="workspace-panel"><div class="section-heading"><h2>Не упустите цену</h2><i data-lucide="bell-ring" style="width:19px;color:var(--accent)"></i></div><p style="font-size:13px;margin:0 0 16px">Сохраните объявление и укажите цену, по которой готовы купить. Список поможет вернуться к нему вовремя.</p><a href="/watchlists" class="workspace-link">Открыть мои списки ↗</a>{% if user.role == 'admin' %}<p id="overview-telegram" style="font-size:11px;margin:17px 0 0">Получаем статус уведомлений…</p>{% else %}<span id="overview-telegram" hidden></span>{% endif %}</section>
+      <section class="workspace-panel"><div class="section-heading"><h2>Не упустите цену</h2><i data-lucide="bell-ring" style="width:19px;color:var(--accent)"></i></div><p style="font-size:13px;margin:0 0 16px">Сохраните объявление и укажите цену, по которой готовы купить. Список поможет вернуться к нему вовремя.</p><a href="/watchlists" class="workspace-link">Открыть мои списки ↗</a>{% if user.role == 'admin' %}<p id="overview-telegram" style="font-size:11px;margin:17px 0 8px">Получаем статус уведомлений…</p><a href="/notifications" class="workspace-link">Проверить доставку ↗</a>{% else %}<span id="overview-telegram" hidden></span>{% endif %}</section>
     </div>
   </div>
   <footer id="overview-updated" aria-live="polite">Подключаемся к вашей базе…</footer>
 </div>
 {% endblock %}
-{% block scripts %}<script src="/static/js/overview.js?v=2.6.0"></script>{% endblock %}
+{% block scripts %}<script src="/static/js/overview.js?v={{ app_version }}"></script>{% endblock %}

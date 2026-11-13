@@ -99,6 +99,7 @@ class PriceStats(BaseModel):
 
 class ParseResult(BaseModel):
     outcome: str = "empty"  # success | empty | partial | blocked | error
+    retry_after_seconds: int = 0
     source: Optional[str] = None
     exhaustive: bool = False  # page-limited monitoring cannot prove deletion
     items: List[AvitoItem] = Field(default_factory=list)

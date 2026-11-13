@@ -4,7 +4,7 @@ from urllib.parse import urlsplit
 from database import db
 from models import AvitoItem
 
-async def format_item_notification(item: AvitoItem, search_name: str, notif_type: str = "new") -> str:
+async def format_item_notification(item: AvitoItem, search_name: str, notif_type: str = "new", database=None) -> str:
     """Форматирование карточки уведомления для Telegram с бейджами AI Score"""
     header = "🆕 <b>НОВОЕ ОБЪЯВЛЕНИЕ</b>" if notif_type == "new" else "📉 <b>ЦЕНА СНИЗИЛАСЬ!</b>"
     
@@ -21,12 +21,12 @@ async def format_item_notification(item: AvitoItem, search_name: str, notif_type
     
     market_info_line = ""
     if item.price is not None and item.search_query_id:
-        market_avg = await db.get_search_market_price(item.search_query_id)
+        market_avg, _ = await (database or db).get_search_market_stats(item.search_query_id)
         if market_avg and market_avg > item.price:
             savings_rub = market_avg - item.price
             pct_below = round((savings_rub / market_avg) * 100)
             if pct_below >= 10:
-                market_info_line = f"\n📊 <b>Средняя цена:</b> {market_avg:,} ₽ <i>(выгода {savings_rub:,} ₽ / -{pct_below}%)</i>".replace(",", " ")
+                market_info_line = f"\n📊 <b>Медиана вашего поиска:</b> {market_avg:,} ₽ <i>(ниже на {savings_rub:,} ₽ / {pct_below}%)</i>".replace(",", " ")
 
     price_str = f"<b>{item.price:,} ₽</b>".replace(",", " ") if item.price is not None else "Цена не указана"
     

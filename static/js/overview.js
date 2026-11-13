@@ -34,7 +34,7 @@
       empty(container, deals ? 'Пока нет предложений с высокой оценкой' : 'Здесь появятся ваши объявления', deals ? 'Посмотрите весь каталог или добавьте ещё один поиск. Оценка — не гарантия выгодной покупки.' : 'Добавьте поиск или запустите разовый сбор.');
       return;
     }
-    items.slice(0, 3).forEach(item => {
+    items.slice(0, 4).forEach(item => {
       const card = node('article', 'deal-card');
       const img = node('img', 'deal-image');
       img.alt = ''; img.loading = 'lazy'; img.referrerPolicy = 'no-referrer';
@@ -46,6 +46,17 @@
       body.append(node('div', 'deal-price', formatPrice(item.price)), title);
       if (item.deal_score != null) body.append(node('span', 'score-badge', item.deal_score + ' · Оценка'));
       body.append(node('p', 'workspace-muted', item.address || 'Место не указано'));
+      if (deals) {
+        card.append(node('span', 'deal-rank', item.deal_grade === 'GEM' ? 'Особенно интересно' : 'Выгодное предложение'));
+        const reason = (item.detected_flaws || [])[0] || (item.deal_reasons || [])[0] || 'Изучите описание и проверьте состояние перед покупкой.';
+        body.append(node('p', 'deal-evidence', ((item.detected_flaws || []).length ? 'Проверьте: ' : '') + reason));
+        body.append(node('div', 'deal-confidence', `Полнота данных: ${Math.round(Number(item.score_confidence || 0) * 100)}% · не гарантия выгоды`));
+        const link = node('a', 'deal-open', 'Посмотреть объявление ↗');
+        const destination = safeUrl(item.url, true);
+        link.href = destination || title.href;
+        if (destination) { link.target = '_blank'; link.rel = 'noopener noreferrer'; }
+        body.append(link);
+      }
       card.append(img, body); container.append(card);
     });
   }
@@ -97,6 +108,10 @@
     try {
       const data = await apiFetch('/api/dashboard', { signal:AbortSignal.timeout(15000) });
       const stats = data.stats;
+      const access = data.source_access || {};
+      text('radar-source-status', access.paused
+        ? `Источник ограничил доступ. Все автоматические запросы на паузе ещё ${Math.ceil(access.retry_after_seconds / 60)} мин. Данные каталога сохранены.`
+        : 'Общая очередь ограничивает частоту запросов. При блокировке сбор автоматически встаёт на паузу.');
       text('metric-items', number(stats.total_items));
       text('metric-today', `+${number(stats.items_today)} сегодня`);
       text('metric-deals', number(stats.total_hot_deals));
@@ -122,6 +137,7 @@
       loaded = true;
       activeSearches = stats.active_searches;
     } catch (error) {
+      text('radar-source-status', 'Не удалось получить состояние источника. Проверьте подключение к панели.');
       text('overview-error-text', 'Не удалось обновить данные. Проверьте подключение и повторите попытку.');
       byId('overview-error').hidden = false;
       text('overview-updated', loaded ? 'Показаны последние полученные данные. Соединение прервано.' : 'Данные пока недоступны.');

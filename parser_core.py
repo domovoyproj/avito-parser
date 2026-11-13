@@ -16,11 +16,14 @@ class AvitoDataExtractor:
         if str(price_str).strip().lower() in ('бесплатно', 'даром', 'free'):
             return 0
         # Удаляем неразрывные пробелы и спецсимволы
-        cleaned = price_str.replace("\xa0", "").replace(" ", "").replace("&nbsp;", "")
-        digits = re.findall(r"\d+", cleaned)
-        if digits:
+        cleaned = str(price_str).replace('&nbsp;', ' ')
+        match = re.search(r'(?:\d{1,3}(?:[ \xa0\u202f]\d{3})+|\d+)(?:[.,]\d{1,2})?', cleaned)
+        if match:
             try:
-                return int("".join(digits))
+                # Do not concatenate a monthly payment, old price or quantity
+                # into the advertised price. Amounts are stored in whole rubles.
+                amount = re.sub(r'[ \xa0\u202f]', '', match.group()).replace(',', '.')
+                return int(amount.split('.')[0])
             except ValueError:
                 return None
         return None

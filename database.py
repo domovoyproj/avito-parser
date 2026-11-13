@@ -34,9 +34,10 @@ from repositories.analytics import AnalyticsRepository
 from repositories.monitoring_runs import MonitoringRunsRepository
 from repositories.watchlists import WatchlistsRepository
 from repositories.feedback import FeedbackRepository
+from repositories.notification_events import NotificationEventsRepository
 
 
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 
 
 class Database(
@@ -48,6 +49,7 @@ class Database(
     MonitoringRunsRepository,
     WatchlistsRepository,
     FeedbackRepository,
+    NotificationEventsRepository,
 ):
     def __init__(self, db_path: Optional[Path] = None):
         self.db_path = db_path or config.db_path
@@ -272,6 +274,9 @@ class Database(
             # Проверка и добавление колонок в telegram_chat_settings (миграция)
             cursor_tg = await db.execute("PRAGMA table_info(telegram_chat_settings)")
             tg_cols = [row[1] for row in await cursor_tg.fetchall()]
+            for column, default in (('quiet_hours_enabled',0),('quiet_hours_start',23),('quiet_hours_end',7)):
+                if column not in tg_cols:
+                    await db.execute(f'ALTER TABLE telegram_chat_settings ADD COLUMN {column} INTEGER NOT NULL DEFAULT {default}')
             if "only_below_market" not in tg_cols:
                 await db.execute(
                     "ALTER TABLE telegram_chat_settings ADD COLUMN only_below_market BOOLEAN DEFAULT 0"
@@ -404,6 +409,11 @@ class Database(
             await db.execute(
                 "CREATE INDEX IF NOT EXISTS idx_outbox_pending ON notification_outbox(status, available_at)"
             )
+            await db.execute(
+                "CREATE TABLE IF NOT EXISTS source_access_state (source TEXT PRIMARY KEY, "
+                "next_request_at REAL NOT NULL DEFAULT 0, blocked_until REAL NOT NULL DEFAULT 0, "
+                "failures INTEGER NOT NULL DEFAULT 0)"
+            )
             outbox_columns = {row[1] for row in await (await db.execute("PRAGMA table_info(notification_outbox)")).fetchall()}
             if 'created_at' not in outbox_columns:
                 await db.execute("ALTER TABLE notification_outbox ADD COLUMN created_at REAL NOT NULL DEFAULT 0")
@@ -463,7 +473,8 @@ class Database(
             )""")
             await db.execute("CREATE INDEX IF NOT EXISTS idx_feedback_item_user ON item_feedback_events(item_id,user_id,id DESC)")
             await db.execute("CREATE INDEX IF NOT EXISTS idx_feedback_scope ON item_feedback_events(score_version,category,search_query_id)")
-            if old_version < 10:
+            fts_exists = await (await db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='item_fts'")).fetchone()
+            if old_version < 10 or not fts_exists:
                 await db.execute("""CREATE VIRTUAL TABLE IF NOT EXISTS item_fts USING fts5(
                     title,description,address,params_json, content='items',content_rowid='rowid',
                     tokenize='unicode61 remove_diacritics 2',prefix='2 3 4')""")

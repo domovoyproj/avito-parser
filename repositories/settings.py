@@ -19,6 +19,9 @@ class SettingsRepository:
                 cols = r.keys() if hasattr(r, "keys") else []
                 return TelegramChatSettings(
                     chat_id=r["chat_id"],
+                    quiet_hours_enabled=bool(r['quiet_hours_enabled']),
+                    quiet_hours_start=r['quiet_hours_start'],
+                    quiet_hours_end=r['quiet_hours_end'],
                     notify_new=bool(r["notify_new"]),
                     notify_drops=bool(r["notify_drops"]),
                     send_photos=bool(r["send_photos"]),
@@ -61,6 +64,9 @@ class SettingsRepository:
         min_deal_score: Optional[int] = None,
         only_below_market: Optional[bool] = None,
         below_market_pct: Optional[int] = None,
+        quiet_hours_enabled: Optional[bool] = None,
+        quiet_hours_start: Optional[int] = None,
+        quiet_hours_end: Optional[int] = None,
     ) -> TelegramChatSettings:
         """Обновление настроек уведомлений конкретного чата Telegram"""
         current = await self.get_chat_settings(chat_id)
@@ -126,6 +132,11 @@ class SettingsRepository:
                     datetime.now(),
                 ),
             )
+            await db.execute(
+                'UPDATE telegram_chat_settings SET quiet_hours_enabled=?,quiet_hours_start=?,quiet_hours_end=? WHERE chat_id=?',
+                (int(current.quiet_hours_enabled if quiet_hours_enabled is None else quiet_hours_enabled),
+                 current.quiet_hours_start if quiet_hours_start is None else quiet_hours_start,
+                 current.quiet_hours_end if quiet_hours_end is None else quiet_hours_end, chat_id))
             await db.commit()
 
         return await self.get_chat_settings(chat_id)

@@ -17,6 +17,7 @@ from monitoring import monitor_service
 from security import avito_url
 from auth_dependencies import require_admin
 from dependencies import get_database, get_monitoring_service
+from source_policy import SourcePolicy
 
 router = APIRouter()
 logger = logging.getLogger("AvitoAPI")
@@ -38,6 +39,7 @@ async def api_monitoring_status(
         "current_checking": monitor_service.current_checking,
         "last_results": monitor_service.last_results,
         "access_alerts": list(getattr(monitor_service, "access_alerts", {}).values()),
+        "source_access": await SourcePolicy(db).status(),
     }
 
 
