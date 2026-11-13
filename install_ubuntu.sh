@@ -54,6 +54,7 @@ echo -e "${GREEN}[+] Системные пакеты успешно устано
 echo ""
 
 # 3. Create Virtual Environment
+python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3,11,5) else "Python 3.11.5+ required. Install a supported Python before continuing.")'
 echo -e "${BLUE}[*] Создание виртуального окружения (venv)...${NC}"
 if [ ! -d "venv" ]; then
     python3 -m venv venv
@@ -66,8 +67,9 @@ echo ""
 # 4. Activate venv & Install Python Packages
 echo -e "${BLUE}[*] Установка зависимостей Python из requirements.txt...${NC}"
 source venv/bin/activate
+python -c 'import sys; sys.exit(0 if sys.version_info >= (3,11,5) else "Recreate venv with Python 3.11.5+ before continuing.")'
 pip install --upgrade pip --quiet
-pip install -r requirements.txt
+pip install -r requirements.txt -c constraints.txt
 echo -e "${GREEN}[+] Все Python-пакеты успешно установлены.${NC}"
 echo ""
 
@@ -104,5 +106,7 @@ echo -e "Для настройки автоматической службы 24/
 echo -e "  ${YELLOW}sudo ./setup_systemd.sh${NC}"
 echo ""
 echo -e "Панель управления будет доступна на порту 8000: ${BLUE}http://YOUR_SERVER_IP:8000${NC}"
-echo -e "Логин по умолчанию: ${YELLOW}admin${NC} / Пароль: ${YELLOW}admin123${NC}"
+echo -e "Перед первым входом создайте администратора с собственным паролем:"
+echo -e "  ${YELLOW}source venv/bin/activate && python setup_admin.py${NC}"
+echo -e "Пароль по умолчанию не настроен."
 echo -e "${GREEN}==============================================================================${NC}"

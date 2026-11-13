@@ -17,13 +17,14 @@ from monitoring import monitor_service
 from security import avito_url
 from auth_dependencies import require_admin
 from dependencies import get_database, get_monitoring_service
+from source_policy import SourcePolicy
 
 router = APIRouter()
 logger = logging.getLogger("AvitoAPI")
 
 
 @router.get("/api/dashboard")
-async def api_dashboard(db: Database = Depends(get_database)):
+async def api_dashboard(db: Database = Depends(get_database), monitor_service=Depends(get_monitoring_service)):
     data = await db.get_dashboard_summary()
     data["monitoring"] = {
         "is_running": monitor_service.is_running,
@@ -37,6 +38,7 @@ async def api_dashboard(db: Database = Depends(get_database)):
         "last_results": monitor_service.last_results,
     }
     data["proxy_count"] = proxy_manager.total_count
+    data['source_access'] = await SourcePolicy(db).status()
     data["telegram_configured"] = bool(config.telegram.bot_token)
     try:
         data["lifetime_stats"] = await db.get_gem_lifetime_stats()

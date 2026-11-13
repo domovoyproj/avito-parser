@@ -538,8 +538,11 @@ function toggleSelectAllTable(masterCb) {
   updateBatchBar();
 }
 
+const pendingFavorites = new Set();
 async function toggleFavorite(itemId, e) {
   if (e) e.stopPropagation();
+  if (pendingFavorites.has(String(itemId))) return;
+  pendingFavorites.add(String(itemId));
   try {
     const res = await apiFetch(`/api/items/${itemId}/favorite`, { method: 'POST' });
     const item = currentItemsMap.get(String(itemId));
@@ -554,8 +557,11 @@ async function toggleFavorite(itemId, e) {
     });
     if (window.lucide) lucide.createIcons();
     showToast(res.is_favorite ? 'Добавлено в избранное' : 'Удалено из избранного', 'info');
+    if (document.getElementById('filter-favorites-only').checked) await loadItems(1);
   } catch (err) {
     showToast(err.message, 'error');
+  } finally {
+    pendingFavorites.delete(String(itemId));
   }
 }
 

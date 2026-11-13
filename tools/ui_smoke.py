@@ -32,7 +32,7 @@ async def run(destination):
         await page.wait_for_url('http://127.0.0.1:18765/')
         for width in (1440, 768, 360):
             await page.set_viewport_size({'width': width, 'height': 1000})
-            for path, name in (('/', 'dashboard'), ('/items', 'catalog'), ('/watchlists', 'watchlists'), ('/feedback', 'feedback'), ('/monitoring', 'monitoring'),
+            for path, name in (('/', 'dashboard'), ('/items', 'catalog'), ('/notifications','notifications'), ('/watchlists', 'watchlists'), ('/feedback', 'feedback'), ('/monitoring', 'monitoring'),
                                ('/settings', 'settings'), ('/parser', 'parser'), ('/logs', 'logs'), ('/exports', 'exports'),
                                ('/item-parser','item-parser'), ('/price-drops','price-drops'), ('/proxies','proxies'), ('/admin/users','users')):
                 await page.goto('http://127.0.0.1:18765' + path)
@@ -58,6 +58,32 @@ async def run(destination):
         assert await page.get_attribute('html', 'data-theme') == 'dark'
         await page.screenshot(path=str(destination / 'dashboard-dark-1440.png'), full_page=True)
         await page.click('.theme-switch')
+        await page.goto('http://127.0.0.1:18765/notifications')
+        await page.wait_for_function("document.getElementById('inbox-pending').textContent.trim() !== '—'")
+        assert await page.locator('#inbox-channels').text_content()
+        assert await page.locator('#prefs-status').text_content()
+        await page.wait_for_selector('#prefs-form:not([hidden])')
+        await page.click('#prefs-preset')
+        await page.check('#prefs-quiet')
+        await page.fill('#prefs-start','22')
+        await page.fill('#prefs-end','8')
+        await page.click('#prefs-save')
+        await page.wait_for_function("document.getElementById('prefs-status').textContent.includes('Правила сохранены')")
+        await page.reload()
+        await page.wait_for_selector('#prefs-form:not([hidden])')
+        assert await page.input_value('#prefs-score') == '70'
+        assert await page.is_checked('#prefs-quiet')
+        assert await page.input_value('#prefs-start') == '22'
+        await page.select_option('#inbox-filter','failed')
+        await page.wait_for_selector('#inbox-events button')
+        await page.locator('#inbox-events button').first.click()
+        await page.wait_for_function("document.getElementById('inbox-failed').textContent === '0'")
+        await page.route('**/api/notifications?*',lambda route: route.fulfill(status=500,content_type='application/json',body='{"detail":"fixture failure"}'))
+        await page.select_option('#inbox-filter','pending')
+        await page.wait_for_selector('#inbox-error:not([hidden])')
+        await page.unroute('**/api/notifications?*')
+        await page.click('#inbox-retry')
+        await page.wait_for_selector('#inbox-error[hidden]',state='attached')
         await page.goto('http://127.0.0.1:18765/items')
         await page.wait_for_selector('.product-card')
         await page.click('#btn-view-table')
@@ -96,7 +122,9 @@ async def run(destination):
         await page.wait_for_selector('#item-modal.hidden', state='attached')
         assert await opener.evaluate('(el) => document.activeElement === el')
         favorite = page.locator('button[onclick^="toggleFavorite"]').first
-        await favorite.click()
+        async with page.expect_response(lambda response: response.url.endswith('/favorite') and response.request.method == 'POST') as favorite_response:
+            await favorite.click()
+        assert (await favorite_response.value).status == 200
         await page.check('#filter-favorites-only')
         await page.wait_for_function("document.querySelectorAll('.product-card').length === 1")
         await page.uncheck('#filter-favorites-only')
@@ -237,7 +265,7 @@ async def run(destination):
             await context.close()
         assert not errors, errors
         await browser.close()
-    print('PASS: 13 responsive screens (360/768/1440), login lockout, menu keyboard, cards/table, search, saved filters, feedback, watchlists, resale calculator, themes, dialogs, export, error/retry, blocked/manual/cancelled job recovery, XSS text, roles; no browser errors')
+    print('PASS: 14 responsive screens (360/768/1440), notification history/error/retry, login lockout, menu keyboard, cards/table, search, saved filters, feedback, watchlists, resale calculator, themes, dialogs, export, error/retry, blocked/manual/cancelled job recovery, XSS text, roles; no browser errors')
 
 
 if __name__ == '__main__':

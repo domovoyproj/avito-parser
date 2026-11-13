@@ -18,6 +18,7 @@ from http_engine import http_engine
 from coordination import lease
 from outbox import outbox_worker
 from observability import observed, configure_logging
+from source_policy import source_policy
 configure_logging()
 logger = logging.getLogger("AvitoMonitoring")
 
@@ -39,10 +40,10 @@ class MonitoringService:
             if alert['url'] == url:
                 self.access_alerts.pop(search_id, None)
 
-    def _access_failure(self, search):
+    def _access_failure(self, search, retry_after=0):
         previous = self.access_alerts.get(search.id, {})
         count = previous.get('count', 0) + 1
-        pause = (300, 900, 3600)[min(count - 1, 2)]
+        pause = max((300, 900, 3600)[min(count - 1, 2)], retry_after)
         self.access_alerts[search.id] = {
             'search_id': search.id, 'name': search.name, 'url': search.url, 'count': count,
             'retry_at': time.time() + pause,
@@ -87,7 +88,7 @@ class MonitoringService:
                         if acquired:
                             result = await asyncio.wait_for(self._check_search(search), timeout=180)
                             if result.get('outcome') == 'blocked':
-                                self._access_failure(search)
+                                self._access_failure(search, result.get('retry_after_seconds', 0))
                             elif result.get('outcome') in ('success', 'empty'):
                                 self.clear_access_alert(search.url)
             return result
@@ -151,7 +152,7 @@ class MonitoringService:
                 result = None
 
             if result and result.outcome == "blocked":
-                return {"new": 0, "drops": 0, "errors": 1, "outcome": "blocked", "engine": "http"}
+                return {"new": 0, "drops": 0, "errors": 1, "outcome": "blocked", "engine": "http", "retry_after_seconds": result.retry_after_seconds}
             if not result or (not result.items and result.outcome != 'empty'):
                 engine_used = "browser"
                 result = await browser_engine.parse_search(search.url, max_pages=1)
@@ -159,7 +160,7 @@ class MonitoringService:
             logger.info(f"⚙️ Поиск '{search.name}': использован {engine_used}-движок")
 
             if result.outcome in ("blocked", "error"):
-                return {"new": 0, "drops": 0, "errors": 1, "outcome": result.outcome, "engine": engine_used}
+                return {"new": 0, "drops": 0, "errors": 1, "outcome": result.outcome, "engine": engine_used, "retry_after_seconds": result.retry_after_seconds}
 
             if result.items:
                 # Привязываем search_query_id
@@ -185,7 +186,8 @@ class MonitoringService:
                 except Exception:
                     pass
 
-                await outbox_worker.drain()
+                # Delivery has its own durable worker in web, bot and CLI.
+                # Slow Telegram/webhook endpoints must not delay source checks.
 
         except Exception as e:
             logger.error(f"Ошибка при проверке поиска #{search.id}: {type(e).__name__}")
@@ -209,6 +211,9 @@ class MonitoringService:
 
     async def _run_all_now(self, due_only=False) -> Dict[str, int]:
         """Принудительная проверка всех включенных поисков (параллельно, макс. 3 одновременно)"""
+        if (await source_policy.status())['paused']:
+            self.last_results = {'new': 0, 'drops': 0, 'errors': 0, 'skipped': 1}
+            return self.last_results
         searches = await db.get_searches(enabled_only=True)
         searches = [search for search in searches if self.access_alerts.get(search.id, {}).get('retry_at', 0) <= time.time()]
         if due_only:

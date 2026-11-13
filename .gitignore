@@ -1,4 +1,5 @@
 # Python & Environment
+/.runtime/
 graphify-out/
 node_modules/
 backups/

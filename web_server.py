@@ -228,7 +228,7 @@ async def page_login(request: Request):
     user = await get_optional_user(request)
     if user:
         return RedirectResponse(url="/", status_code=303)
-    return templates.TemplateResponse(request=request, name="login.html", context={"page": "login"})
+    return templates.TemplateResponse(request=request, name="login.html", context={"page": "login", "app_version": VERSION})
 
 @app.get("/", response_class=HTMLResponse)
 async def page_dashboard(request: Request):
@@ -253,6 +253,10 @@ async def page_items(request: Request):
 @app.get("/watchlists", response_class=HTMLResponse)
 async def page_watchlists(request: Request):
     return await render_auth_page("watchlists")(request)
+
+@app.get('/notifications', response_class=HTMLResponse)
+async def page_notifications(request: Request):
+    return await render_auth_page('notifications', admin_only=True)(request)
 
 @app.get("/feedback", response_class=HTMLResponse)
 async def page_feedback(request: Request):
@@ -307,6 +311,8 @@ from routers.watchlists import router as watchlists_router
 app.include_router(watchlists_router)
 from routers.feedback import router as feedback_router
 app.include_router(feedback_router)
+from routers.notifications import router as notifications_router
+app.include_router(notifications_router)
 from routers.saved_filters import router as saved_filters_router
 app.include_router(saved_filters_router)
 

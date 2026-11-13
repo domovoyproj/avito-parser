@@ -14,6 +14,7 @@ from database import db
 from models import AvitoItem
 from notifications import format_item_notification
 from security import avito_url
+from source_policy import retry_seconds
 
 
 def quiet_now(settings, hour):
@@ -49,11 +50,17 @@ class OutboxWorker:
         try:
             payload = json.loads(job['payload'])
             item = AvitoItem.model_validate(payload['item'])
+            if payload['type'] not in ('new', 'price_drop') or job['channel'] not in ('telegram', 'webhook'):
+                raise ValueError('unsupported event')
         except (ValueError, KeyError, TypeError):
             await self.finish(job, 'failed', error='invalid payload')
             return
         retry = min(3600, 30 * (2 ** min(job['attempts'], 7)))
         try:
+            current = await self.db.get_item_by_id(item.id)
+            if current is None or current.is_closed or current.is_reserved or current.is_hidden or current.price != item.price:
+                await self.finish(job, 'skipped', error='stale or unavailable', attempted=False)
+                return
             if item.seller and item.seller.name in await self.db.get_blacklisted_sellers():
                 await self.finish(job, 'skipped', attempted=False)
                 return
@@ -78,12 +85,12 @@ class OutboxWorker:
                         if 100 * (item.old_price-item.price) / item.old_price < settings.min_discount_pct:
                             await self.finish(job, 'skipped')
                             return
-                    if settings.only_below_market and item.price is not None:
-                        market = await self.db.get_search_market_price(item.search_query_id)
-                        if not market or item.price > market * (1-settings.below_market_pct/100):
+                    if settings.only_below_market:
+                        market, _ = await self.db.get_search_market_stats(item.search_query_id)
+                        if item.price is None or not market or item.price > market * (1-settings.below_market_pct/100):
                             await self.finish(job, 'skipped')
                             return
-                    text = await format_item_notification(item, payload['search_name'], payload['type'])
+                    text = await format_item_notification(item, payload['search_name'], payload['type'], database=self.db)
                     message = {'chat_id': chat, 'text': text, 'parse_mode': 'HTML'}
                     if avito_url(item.url):
                         message['reply_markup'] = {'inline_keyboard': [[{'text': 'Открыть объявление', 'url': item.url}]]}
@@ -103,6 +110,11 @@ class OutboxWorker:
                     if not settings.enabled or settings.url != job['destination']:
                         await self.finish(job, 'skipped')
                         return
+                    if (item.deal_score < settings.min_deal_score or
+                        (payload['type'] == 'new' and not settings.send_new) or
+                        (payload['type'] == 'price_drop' and not settings.send_drops)):
+                        await self.finish(job, 'skipped', attempted=False)
+                        return
                     body = json.dumps(payload, ensure_ascii=False).encode()
                     headers = {'Content-Type': 'application/json'}
                     if settings.secret:
@@ -117,7 +129,7 @@ class OutboxWorker:
                             server_retry = response.headers.get('Retry-After')
                             if server_retry is None:
                                 server_retry = response.json().get('parameters', {}).get('retry_after', retry)
-                            retry = max(1, min(86400, float(server_retry)))
+                            retry = retry_seconds(server_retry, default=retry)
                         except (ValueError, TypeError, AttributeError):
                             pass
                     permanent = (400 <= response.status_code < 500 and response.status_code != 429) or job['attempts'] >= 7

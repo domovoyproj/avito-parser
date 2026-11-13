@@ -20,7 +20,7 @@ if %errorlevel% equ 0 (
     ) else (
         color 0C
         echo [ERROR] Python not found in system PATH!
-        echo Please install Python 3.10+ and check "Add Python to PATH".
+        echo Please install Python 3.11.5+ and check "Add Python to PATH".
         pause
         exit /b 1
     )
@@ -44,11 +44,16 @@ echo.
 
 set "VENV_PY=%~dp0.venv\Scripts\python.exe"
 set "VENV_PIP=%~dp0.venv\Scripts\pip.exe"
+"%VENV_PY%" -c "import sys; sys.exit(0 if sys.version_info >= (3,11,5) else 1)"
+if errorlevel 1 (
+    echo [ERROR] Python 3.11.5+ required. Recreate .venv with a supported Python.
+    exit /b 1
+)
 
 rem 3. Upgrade pip and install requirements
 echo [*] Installing requirements from requirements.txt...
 "%VENV_PY%" -m pip install --upgrade pip --quiet
-"%VENV_PY%" -m pip install -r requirements.txt
+"%VENV_PY%" -m pip install -r requirements.txt -c constraints.txt
 if %errorlevel% neq 0 (
     color 0C
     echo [ERROR] Failed to install python dependencies!
@@ -94,8 +99,9 @@ echo To start Telegram Bot:  start_telegram_bot.bat
 echo To start everything:    start_all.bat
 echo.
 echo Panel URL: http://127.0.0.1:8000
-echo Default login:    admin
-echo Default password: admin123
+echo Before first login, create an administrator with your own password:
+echo   .venv\Scripts\python.exe setup_admin.py
+echo No default password is configured.
 echo ==============================================================================
 echo.
 pause

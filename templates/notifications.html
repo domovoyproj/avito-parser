@@ -1,0 +1,25 @@
+{% extends 'base.html' %}
+{% block title %}Уведомления — Avito Max{% endblock %}
+{% block content %}
+<div class="notification-workspace">
+  <div class="page-heading"><div><div class="eyebrow">Держите находки в поле зрения</div><h1>Уведомления</h1><p>Что отправлено, что ждёт своей очереди и где нужна ваша помощь.</p></div><a href="/settings#settings-notifications" class="button-primary"><i data-lucide="sliders-horizontal"></i>Настроить оповещения</a></div>
+  <div id="inbox-error" class="workspace-error" role="alert" hidden>Не удалось загрузить уведомления. <button id="inbox-retry" class="button-secondary">Повторить</button></div>
+  <div class="radar-strip"><i data-lucide="bell-ring"></i><p id="inbox-channels" aria-live="polite">Проверяем подключения…</p><a href="/settings">Подключения ↗</a></div>
+  <div class="radar-inbox" aria-label="Состояние доставки"><div class="metric"><div class="metric-label">В очереди</div><div id="inbox-pending" class="metric-value-new">—</div></div><div class="metric"><div class="metric-label">Доставлено</div><div id="inbox-sent" class="metric-value-new">—</div></div><div class="metric"><div class="metric-label">Требуют внимания</div><div id="inbox-failed" class="metric-value-new">—</div></div><div class="metric"><div class="metric-label">Отсеяно фильтрами</div><div id="inbox-skipped" class="metric-value-new">—</div></div></div>
+  <section class="workspace-panel"><div class="section-heading"><h2>Какие находки присылать</h2><button id="prefs-reload" class="button-secondary" type="button">Загрузить правила</button></div><p class="section-caption">Отдельные правила для каждого получателя. Тихие часы — по времени сервера.</p>
+    <p id="prefs-status" class="workspace-muted" role="status">Загружаем правила…</p>
+    <form id="prefs-form" hidden>
+      <div class="alert-preferences"><label>Получатель<select id="prefs-chat" required></select></label><label>Минимальная оценка<input id="prefs-score" type="number" min="0" max="100" required value="70"></label><label>Ниже медианы поиска, %<input id="prefs-below-pct" type="number" min="0" max="100" required value="15"></label><label>Тихие часы: с<input id="prefs-start" type="number" min="0" max="23" required value="23"></label><label>до<input id="prefs-end" type="number" min="0" max="23" required value="7"></label></div>
+      <div class="alert-checks"><label><input id="prefs-new" type="checkbox">Новые лоты</label><label><input id="prefs-drops" type="checkbox">Снижения цены</label><label><input id="prefs-below" type="checkbox">Только ниже медианы</label><label><input id="prefs-delivery" type="checkbox">Только с доставкой</label><label><input id="prefs-quiet" type="checkbox">Включить тихие часы</label></div>
+      <div class="page-actions"><button id="prefs-save" class="button-primary" type="submit">Сохранить правила</button><button id="prefs-preset" class="button-secondary" type="button">Только выгодные · 70+</button></div>
+    </form>
+  </section>
+  <section class="workspace-panel"><div class="section-heading"><h2>История доставки</h2><span class="workspace-muted">Последние 50 событий</span></div>
+    <div class="inbox-toolbar"><label for="inbox-filter">Показать</label><select id="inbox-filter"><option value="">Все события</option><option value="pending">В очереди</option><option value="sending">Отправляются</option><option value="sent">Доставленные</option><option value="failed">Ошибки</option><option value="skipped">Пропущенные</option></select><button id="inbox-refresh" class="button-secondary"><i data-lucide="refresh-cw"></i>Обновить</button></div>
+    <div id="inbox-events" aria-live="polite"><div class="workspace-empty">Загружаем историю…</div></div>
+    <p class="section-caption" style="margin:18px 0 0">Тихие часы и фильтры могут отложить или отменить отправку. После сбоя возможна повторная доставка одного события.</p>
+  </section>
+  <section class="workspace-panel"><div class="section-heading"><h2>Меньше шума, больше полезных находок</h2></div><div class="radar-help"><div><div class="eyebrow">01 · Отбор</div><h3>Только интересные лоты</h3><p>В настройках Telegram задайте минимальную оценку и фильтр цены ниже медианы поиска. Оценка объясняет сигналы, но не гарантирует выгоду.</p><a href="/settings#settings-notifications">Настроить фильтры ↗</a></div><div><div class="eyebrow">02 · Наблюдение</div><h3>Ваша цена покупки</h3><p>Сохраняйте лоты в личные списки с целевой ценой. При снижении до неё парсер подготовит адресное уведомление.</p><a href="/watchlists">Открыть списки ↗</a></div><div><div class="eyebrow">03 · Контроль</div><h3>Понятная доставка</h3><p>Ошибки не исчезают из истории. Исправьте подключение и повторите отправку. Неактуальная цена или закрытый лот будут отсеяны.</p><a href="/monitoring">Проверить мониторинг ↗</a></div></div></section>
+</div>
+{% endblock %}
+{% block scripts %}<script src="/static/js/notifications.js?v={{ app_version }}"></script>{% endblock %}

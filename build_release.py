@@ -18,7 +18,7 @@ INCLUDE_PATTERNS = [
     "routers", "repositories", "docs",
     "auth_dependencies.py", "dependencies.py", "catalog_filters.py", "coordination.py", "monitoring.py",
     "notifications.py", "outbox.py", "observability.py", "security.py",
-    "parse_outcomes.py", "access_guard.py", "version.py", "parser_jobs.py", "llm_store.py", "export_jobs.py",
+    "parse_outcomes.py", "access_guard.py", "source_policy.py", "version.py", "parser_jobs.py", "llm_store.py", "export_jobs.py",
     "streaming_export.py", "setup_admin.py", "manage_db.py", "constraints.txt",
     "static",
     "templates",

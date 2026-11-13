@@ -11,6 +11,7 @@
   <link rel="stylesheet" href="/static/css/styles.css?v=2.6.0">
   <link rel="stylesheet" href="/static/css/design-system.css?v=2.6.0">
   <link rel="stylesheet" href="/static/css/workspace.css?v=2.6.0">
+  <link rel="stylesheet" href="/static/css/radar.css?v={{ app_version }}">
   {% block head %}{% endblock %}
 </head>
 <body data-role="{{ user.role if user else '' }}" data-page="{{ page }}" class="app-shell">
@@ -18,8 +19,8 @@
   <button class="nav-shade" aria-label="Закрыть меню" tabindex="-1"></button>
   <aside id="app-sidebar" class="solid-sidebar">
     <a href="/" class="app-brand" aria-label="Avito Max — обзор">
-      <span class="brand-mark"><i data-lucide="layers"></i></span>
-      <span><strong>Avito Max<span class="brand-dot">.</span></strong><small>Рабочее пространство</small></span>
+      <span class="brand-mark"><i data-lucide="radar"></i></span>
+      <span><strong>Avito Max<span class="brand-dot">.</span></strong><small>Радар выгодных находок</small></span>
     </a>
     <nav class="sidebar-navigation" aria-label="Главная навигация">
       <div class="nav-label">Ваш рынок</div>
@@ -28,6 +29,7 @@
       <a href="/monitoring" class="nav-item {% if page == 'monitoring' %}active{% endif %}"><i data-lucide="radar"></i><span>Поиски</span><span id="sidebar-active-searches-pill" class="nav-count"></span></a>
       <a href="/watchlists" class="nav-item {% if page == 'watchlists' %}active{% endif %}"><i data-lucide="bookmark"></i><span>Мои списки</span></a>
       <a href="/price-drops" class="nav-item {% if page == 'price_drops' %}active{% endif %}"><i data-lucide="trending-down"></i><span>Снижения цен</span></a>
+      {% if user and user.role == 'admin' %}<a href="/notifications" class="nav-item {% if page == 'notifications' %}active{% endif %}"><i data-lucide="bell-ring"></i><span>Уведомления</span></a>{% endif %}
       <div class="nav-label">Инструменты</div>
       <a href="/parser" class="nav-item {% if page == 'parser' %}active{% endif %}"><i data-lucide="search"></i><span>Новый сбор</span></a>
       <a href="/exports" class="nav-item {% if page == 'exports' %}active{% endif %}"><i data-lucide="download"></i><span>Экспорты</span></a>

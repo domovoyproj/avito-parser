@@ -204,7 +204,8 @@ class SettingsAPITests(unittest.IsolatedAsyncioTestCase):
         session.get = AsyncMock(return_value=MagicMock(status_code=200, text="fixture"))
         session.__aenter__ = AsyncMock(return_value=session)
         session.__aexit__ = AsyncMock(return_value=False)
-        with patch.object(http_module, "AsyncSession", return_value=session) as factory, \
+        with patch.object(http_module.source_policy, "wait", new_callable=AsyncMock), \
+             patch.object(http_module, "AsyncSession", return_value=session) as factory, \
              patch.object(http_module.AvitoDataExtractor, "extract_from_initial_data", return_value=[
                  AvitoItem(id="fixture", title="fixture", url="https://www.avito.ru/fixture")]), \
              patch.object(http_module.asyncio, "sleep", new_callable=AsyncMock) as sleep, \

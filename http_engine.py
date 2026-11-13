@@ -11,6 +11,7 @@ from models import AvitoItem, ParseResult
 from parser_core import AvitoDataExtractor
 from proxy_manager import proxy_manager
 from parse_outcomes import extract_page, finalize
+from source_policy import SourceCooldown, page_url as build_page_url, source_policy
 
 console = Console()
 
@@ -61,18 +62,21 @@ class AvitoHttpEngine:
 
         async with AsyncSession(impersonate="chrome131", proxy=self.proxy, cookies=cookies) as session:
             for page_num in range(1, max_pages + 1):
-                page_url = url if page_num == 1 else f"{url}&p={page_num}" if "?" in url else f"{url}?p={page_num}"
+                page_url = url if page_num == 1 else build_page_url(url, page_num)
                 console.print(f"[dim]HTTP запрос к странице {page_num}:[/dim] {page_url}")
 
                 page_success = False
+                new_items = []
                 for attempt in range(1, 3):
                     try:
+                        await source_policy.wait()
                         resp = await session.get(page_url, headers=self._get_headers(), timeout=config.scraper.timeout_ms / 1000)
                         
                         if resp.status_code != 200:
                             if resp.status_code == 429 or resp.status_code == 403:
                                 result.outcome = "blocked"
-                                err_msg = f"HTTP {resp.status_code}: Доступ ограничен. Рекомендуется включить прокси или движок Playwright."
+                                result.retry_after_seconds = await source_policy.block(resp.headers.get('Retry-After'))
+                                err_msg = f"HTTP {resp.status_code}: Источник на паузе. Дождитесь окончания ограничения или пройдите ручную проверку."
                             else:
                                 err_msg = f"HTTP статус {resp.status_code}"
                             result.errors.append(err_msg)
@@ -87,6 +91,7 @@ class AvitoHttpEngine:
                             break
                         if extracted.outcome == "blocked":
                             result.outcome = "blocked"
+                            result.retry_after_seconds = await source_policy.block()
                             result.errors.extend(extracted.errors)
                             break
                         page_items = extracted.items
@@ -101,21 +106,34 @@ class AvitoHttpEngine:
                                 new_on_page += 1
 
                         console.print(f"[green]✓ Страница {page_num}:[/green] получено {len(page_items)} объявлений")
-                        if items_callback and new_items:
-                            await items_callback(new_items)
-                        if progress_callback:
-                            await progress_callback(page_num, max_pages, len(all_items))
+                        await source_policy.success()
                         page_success = True
                         break
 
+                    except SourceCooldown as exc:
+                        result.outcome = 'blocked'
+                        result.retry_after_seconds = exc.retry_after
+                        result.errors.append(str(exc))
+                        break
                     except Exception as e:
                         if attempt == 2:
                             err_msg = f"Ошибка HTTP запроса: {type(e).__name__}"
                             result.errors.append(err_msg)
                             console.print(f"[red]✗ {err_msg}[/red]")
-                        await asyncio.sleep(1.5)
+                        if attempt < 2:
+                            await asyncio.sleep(1.5)
 
-                if not page_success or len(all_items) == 0:
+                # Persistence errors must not cause a second source request.
+                if page_success:
+                    try:
+                        if items_callback and new_items:
+                            await items_callback(new_items)
+                        if progress_callback:
+                            await progress_callback(page_num, max_pages, len(all_items))
+                    except Exception as exc:
+                        result.errors.append(f'Ошибка сохранения страницы: {type(exc).__name__}')
+                        break
+                if not page_success or not new_items:
                     break
 
                 if page_num < max_pages:

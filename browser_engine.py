@@ -14,6 +14,7 @@ from parser_core import AvitoDataExtractor
 from proxy_manager import proxy_manager
 from parse_outcomes import extract_page, finalize
 from access_guard import access_challenge
+from source_policy import SourceCooldown, page_url as build_page_url, source_policy
 
 console = Console()
 
@@ -172,11 +173,7 @@ class AvitoBrowserEngine:
         if page_num <= 1:
             return base_url
 
-        if "p=" in base_url:
-            return re.sub(r'([?&])p=\d+', rf'\g<1>p={page_num}', base_url)
-        
-        separator = "&" if "?" in base_url else "?"
-        return f"{base_url}{separator}p={page_num}"
+        return build_page_url(base_url, page_num)
 
     async def parse_search(
         self,
@@ -194,77 +191,100 @@ class AvitoBrowserEngine:
         all_items: List[AvitoItem] = []
         seen_ids = set()
         challenge_state = {}
+        manual_recovery = not self.headless and access_callback is not None
 
         async with async_playwright() as p:
             context = await self._create_context(p)
-            page = await context.new_page()
+            try:
+                page = await context.new_page()
 
-            for page_num in range(1, max_pages + 1):
-                page_url = self._build_page_url(url, page_num)
-                console.print(f"[dim]Загрузка страницы {page_num}/{max_pages}:[/dim] {page_url}")
+                for page_num in range(1, max_pages + 1):
+                    page_url = self._build_page_url(url, page_num)
+                    console.print(f"[dim]Загрузка страницы {page_num}/{max_pages}:[/dim] {page_url}")
 
-                page_loaded = False
-                for attempt in range(1, 3):
-                    try:
-                        await page.goto(page_url, wait_until="domcontentloaded", timeout=config.scraper.timeout_ms)
-                        await asyncio.sleep(random.uniform(1.5, 2.5))
+                    page_loaded = False
+                    new_items = []
+                    for attempt in range(1, 3):
+                        try:
+                            await source_policy.wait(manual=manual_recovery)
+                            response = await page.goto(page_url, wait_until="domcontentloaded", timeout=config.scraper.timeout_ms)
+                            if response and response.status in (403, 429) and not manual_recovery:
+                                result.outcome = 'blocked'
+                                result.retry_after_seconds = await source_policy.block(response.headers.get('retry-after'))
+                                result.errors.append(f'HTTP {response.status}: доступ ограничен')
+                                break
+                            await asyncio.sleep(random.uniform(1.5, 2.5))
 
-                        if await self._check_and_handle_block(page, access_callback, challenge_state, page_num):
+                            if await self._check_and_handle_block(page, access_callback, challenge_state, page_num):
+                                result.outcome = 'blocked'
+                                result.retry_after_seconds = await source_policy.block()
+                                err_msg = f"Страница {page_num} заблокирована Авито (IP ограничение / Капча)."
+                                result.errors.append(err_msg)
+                                break
+
+                            await self._emulate_human(page)
+                            html = await page.content()
+
+                            # Извлечение объявлений
+                            extracted = extract_page(html)
+                            result.source = extracted.source
+                            if extracted.outcome == 'error':
+                                result.errors.extend(extracted.errors)
+                                break
+                            if extracted.outcome == "blocked":
+                                result.outcome = "blocked"
+                                result.retry_after_seconds = await source_policy.block()
+                                result.errors.extend(extracted.errors)
+                                break
+                            page_items = extracted.items
+                            await source_policy.success(manual=manual_recovery)
+
+                            new_on_page = 0
+                            new_items = []
+                            for item in page_items:
+                                if item.id not in seen_ids:
+                                    seen_ids.add(item.id)
+                                    all_items.append(item)
+                                    new_items.append(item)
+                                    new_on_page += 1
+
+                            console.print(f"[green]✓ Страница {page_num}:[/green] найдено {len(page_items)} объявлений (новых {new_on_page})")
+
+                            page_loaded = True
+                            break
+
+                        except SourceCooldown as exc:
                             result.outcome = 'blocked'
-                            err_msg = f"Страница {page_num} заблокирована Авито (IP ограничение / Капча)."
-                            result.errors.append(err_msg)
+                            result.retry_after_seconds = exc.retry_after
+                            result.errors.append(str(exc))
                             break
+                        except Exception as e:
+                            console.print(f"[yellow]Попытка {attempt} для стр. {page_num} завершилась ошибкой: {e}[/yellow]")
+                            if attempt == 2:
+                                result.errors.append(f"Ошибка загрузки стр. {page_num}: {type(e).__name__}")
+                            if attempt < 2:
+                                await asyncio.sleep(2)
 
-                        await self._emulate_human(page)
-                        html = await page.content()
-
-                        # Извлечение объявлений
-                        extracted = extract_page(html)
-                        result.source = extracted.source
-                        if extracted.outcome == 'error':
-                            result.errors.extend(extracted.errors)
+                    if page_loaded:
+                        try:
+                            if items_callback and new_items:
+                                await items_callback(new_items)
+                            if progress_callback:
+                                await progress_callback(page_num, max_pages, len(all_items))
+                        except Exception as exc:
+                            result.errors.append(f'Ошибка сохранения страницы: {type(exc).__name__}')
                             break
-                        if extracted.outcome == "blocked":
-                            result.outcome = "blocked"
-                            result.errors.extend(extracted.errors)
-                            break
-                        page_items = extracted.items
-
-                        new_on_page = 0
-                        new_items = []
-                        for item in page_items:
-                            if item.id not in seen_ids:
-                                seen_ids.add(item.id)
-                                all_items.append(item)
-                                new_items.append(item)
-                                new_on_page += 1
-
-                        console.print(f"[green]✓ Страница {page_num}:[/green] найдено {len(page_items)} объявлений (новых {new_on_page})")
-
-                        if items_callback and new_items:
-                            await items_callback(new_items)
-                        if progress_callback:
-                            await progress_callback(page_num, max_pages, len(all_items))
-
-                        page_loaded = True
+                    if not page_loaded or not new_items:
                         break
 
-                    except Exception as e:
-                        console.print(f"[yellow]Попытка {attempt} для стр. {page_num} завершилась ошибкой: {e}[/yellow]")
-                        if attempt == 2:
-                            result.errors.append(f"Ошибка загрузки стр. {page_num}: {type(e).__name__}")
-                        await asyncio.sleep(2)
+                    # Пауза между страницами
+                    if page_num < max_pages:
+                        delay = random.uniform(config.scraper.page_delay_min, config.scraper.page_delay_max)
+                        await asyncio.sleep(delay)
 
-                if not page_loaded or len(all_items) == 0:
-                    break
-
-                # Пауза между страницами
-                if page_num < max_pages:
-                    delay = random.uniform(config.scraper.page_delay_min, config.scraper.page_delay_max)
-                    await asyncio.sleep(delay)
-
-            await self._save_cookies(context)
-            await context.browser.close()
+                await self._save_cookies(context)
+            finally:
+                await context.browser.close()
 
         result.items = all_items
         result.total_found = len(all_items)
@@ -280,10 +300,15 @@ class AvitoBrowserEngine:
             page = await context.new_page()
 
             try:
-                await page.goto(item_url, wait_until="domcontentloaded", timeout=config.scraper.timeout_ms)
+                await source_policy.wait()
+                response = await page.goto(item_url, wait_until="domcontentloaded", timeout=config.scraper.timeout_ms)
+                if response and response.status in (403, 429):
+                    await source_policy.block(response.headers.get('retry-after'))
+                    return None
                 await asyncio.sleep(random.uniform(1.5, 3.0))
 
                 if await self._check_and_handle_block(page):
+                    await source_policy.block()
                     return None
 
                 await self._emulate_human(page)
@@ -294,13 +319,15 @@ class AvitoBrowserEngine:
                 item_id = match.group(1) if match else "unknown"
 
                 item = AvitoDataExtractor.parse_item_detail_page(html, item_id, item_url)
-                await context.browser.close()
+                if item:
+                    await source_policy.success()
                 return item
 
             except Exception as e:
                 console.print(f"[red]Ошибка парсинга карточки: {type(e).__name__}[/red]")
-                await context.browser.close()
                 return None
+            finally:
+                await context.browser.close()
 
 
 browser_engine = AvitoBrowserEngine()
