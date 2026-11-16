@@ -6,11 +6,24 @@ import json
 import time
 import secrets
 import functools
+import sys
 from contextvars import ContextVar
 from datetime import datetime, timezone
 from config import config
 
 log_context = ContextVar("log_context", default={})
+
+
+def configure_console_output():
+    """Keep Rich and redirected Windows output safe in every entry point."""
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, 'reconfigure', None)
+        if reconfigure is not None:
+            try:
+                reconfigure(encoding='utf-8', errors='replace')
+            except (OSError, ValueError):
+                # Embedded/captured streams may not support reconfiguration.
+                pass
 
 
 class JsonFormatter(logging.Formatter):
@@ -26,6 +39,7 @@ class JsonFormatter(logging.Formatter):
 
 
 def configure_logging():
+    configure_console_output()
     root = logging.getLogger()
     if not any(getattr(handler, 'avito_json', False) for handler in root.handlers):
         handler = logging.StreamHandler()

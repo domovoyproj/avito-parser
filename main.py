@@ -15,7 +15,9 @@ from exporter import exporter
 from http_engine import http_engine
 from models import AvitoItem, SearchQuery
 from proxy_manager import proxy_manager
+from observability import configure_console_output
 
+configure_console_output()
 console = Console()
 
 

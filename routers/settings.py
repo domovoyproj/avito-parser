@@ -285,7 +285,8 @@ async def api_save_ai_settings(req: SaveAISettingsRequest, db: Database=Depends(
         api_key="" if req.clear_api_key else (req.api_key.strip() or existing.api_key),
         model=req.model.strip(),
         api_base=req.api_base.strip(),
-        prompt_template=req.prompt_template,
+        prompt_template=(req.prompt_template if 'prompt_template' in req.model_fields_set
+                         else existing.prompt_template),
     )
     saved = await db.save_ai_settings(settings)
     logger.info(
@@ -302,6 +303,8 @@ async def api_save_ai_settings(req: SaveAISettingsRequest, db: Database=Depends(
 async def api_test_ai_connection(req: TestAIRequest, db: Database=Depends(get_database)):
     provider = (req.provider or "deepseek").lower()
     api_key = req.api_key.strip() or (await db.get_ai_settings()).api_key
+    if provider != 'ollama' and not api_key:
+        raise HTTPException(status_code=400, detail='Сохраните API-ключ в настройках или введите его для проверки.')
     model = req.model.strip() or "deepseek-chat"
     api_base = req.api_base.strip().rstrip("/")
 
@@ -352,15 +355,26 @@ async def api_test_ai_connection(req: TestAIRequest, db: Database=Depends(get_da
                     "response": reply,
                 }
             else:
-                error_msg = f"HTTP {resp.status_code}: {resp.text[:200]}"
+                # Provider bodies may echo the supplied key. Never return them to the UI.
+                messages = {
+                    401: 'API-ключ отклонён. Проверьте ключ и выбранного провайдера.',
+                    403: 'Провайдер отказал в доступе. Проверьте доступность API для аккаунта и сети.',
+                    404: 'Модель или адрес API не найдены. Проверьте настройки.',
+                    429: 'Лимит запросов или баланс API исчерпан. Проверьте квоту и оплату.',
+                }
+                error_msg = messages.get(resp.status_code, 'Провайдер временно не выполнил запрос. Повторите позже.')
                 raise HTTPException(
-                    status_code=400, detail=f"Ошибка AI-провайдера: {error_msg}"
+                    status_code=400, detail=f"HTTP {resp.status_code}: {error_msg}"
                 )
     except HTTPException:
         raise
-    except Exception as e:
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail='AI-провайдер не ответил за 15 секунд. Проверьте соединение и повторите тест.')
+    except httpx.ConnectError:
+        raise HTTPException(status_code=502, detail='Не удалось установить защищённое соединение с AI-провайдером. Проверьте доступ к API, сеть и настройки прокси. Ключ ещё не проверен.')
+    except Exception:
         raise HTTPException(
-            status_code=500, detail=f"Не удалось подключиться к {url}: {e}"
+            status_code=502, detail='Не удалось получить корректный ответ от AI-провайдера. Проверьте адрес API и повторите тест.'
         )
 
 

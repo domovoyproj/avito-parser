@@ -565,10 +565,7 @@ async function testAIConnection() {
   const baseUrl = document.getElementById('set-ai-base-url').value.trim();
   const apiKey = document.getElementById('set-ai-api-key').value.trim();
 
-  if (provider !== 'ollama' && !apiKey) {
-    showToast('Введите API-ключ для проверки подключения', 'warning');
-    return;
-  }
+  // An empty input keeps the secret on the server; the API uses the saved key.
 
   const btn = document.getElementById('btn-test-ai');
   if (btn) btn.classList.add('opacity-50', 'pointer-events-none');

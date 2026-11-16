@@ -36,7 +36,7 @@ from ai_scoring import deal_scoring_engine
 from parser_core import AvitoDataExtractor
 from proxy_manager import ProxyManager, proxy_manager
 from security import login_limiter, same_origin, avito_url
-from observability import RedactingFilter, redact
+from observability import RedactingFilter, redact, configure_console_output
 from version import VERSION
 
 # --- Логирование и кольцевой буфер для Веб-панели ---
@@ -337,10 +337,7 @@ async def api_clear_logs():
 # ==============================================================================
 
 def run_server(host: Optional[str] = None, port: Optional[int] = None, open_browser: bool = True):
-    # Windows redirected output can otherwise fail on the very first emoji.
-    for stream in (sys.stdout, sys.stderr):
-        if hasattr(stream, 'reconfigure'):
-            stream.reconfigure(encoding='utf-8', errors='replace')
+    configure_console_output()
     h = host or config.web.host
     p = port or config.web.port
     browser_host = "127.0.0.1" if h in ("0.0.0.0", "::") else h
