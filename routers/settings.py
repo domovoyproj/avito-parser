@@ -3,6 +3,7 @@ import asyncio
 import hashlib
 import hmac
 import json
+import re
 import logging
 import time
 from typing import List, Optional
@@ -403,6 +404,10 @@ async def api_add_scoring_rule(req: CustomRuleCreateRequest, db: Database=Depend
         raise HTTPException(
             status_code=400, detail="Описание правила не может быть пустым"
         )
+    try:
+        re.compile(req.pattern.strip())
+    except re.error:
+        raise HTTPException(status_code=400, detail='Некорректное регулярное выражение. Проверьте скобки и специальные символы.')
     rule_id = await db.add_custom_scoring_rule(req.pattern, req.label, req.score_delta)
     logger.info(
         f"📐 Добавлено правило скоринга #{rule_id}: '{req.label}' ({req.score_delta:+d} баллов)"

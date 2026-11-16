@@ -160,7 +160,10 @@ async function apiFetch(url, options = {}) {
       try {
         errData = await res.json();
       } catch (e) {}
-      throw new Error(errData.detail || `Ошибка сервера (${res.status})`);
+      const detail = Array.isArray(errData.detail)
+        ? errData.detail.map(error => error.msg).filter(Boolean).join('; ')
+        : errData.detail;
+      throw new Error(detail || `Ошибка сервера (${res.status})`);
     }
 
     // Check if JSON response
@@ -247,6 +250,34 @@ function initGlobalApp() {
   setInterval(updateAccessAttention, 10000);
 }
 
+let accessCheckPending = false;
+async function openManualAccess(entry, button) {
+  if (!canMutate() || accessCheckPending) return;
+  accessCheckPending = true;
+  button.disabled = true;
+  try {
+    let job;
+    if (entry.job_id && entry.status === 'waiting_human') {
+      job = entry;
+    } else if (entry.job_id) {
+      job = await apiFetch('/api/parser/jobs/' + encodeURIComponent(entry.job_id) + '/retry-human', {method:'POST'});
+    } else {
+      // Reuse an existing manual check for this search instead of opening two windows.
+      const attention = await apiFetch('/api/parser/attention');
+      job = attention.jobs?.find(item => item.url === entry.url && item.status === 'waiting_human');
+      if (!job) job = await apiFetch('/api/parser/start', {method:'POST', body:JSON.stringify({
+        url:entry.url, engine:'playwright', headless:false, max_pages:1, save_to_db:false
+      })});
+    }
+    location.assign('/parser?job=' + encodeURIComponent(job.job_id));
+  } catch (error) {
+    showToast('Не удалось открыть окно проверки. ' + error.message, 'error');
+  } finally {
+    accessCheckPending = false;
+    button.disabled = !canMutate();
+  }
+}
+
 async function updateAccessAttention() {
   const banner = document.getElementById('access-attention');
   if (!banner) return;
@@ -260,7 +291,10 @@ async function updateAccessAttention() {
     const dismiss = document.getElementById('access-dismiss');
     dismiss.hidden = !entry.job_id || entry.status === 'waiting_human' || !canMutate();
     dismiss.dataset.jobId = entry.job_id || '';
-    document.getElementById('access-attention-link').href = entry.job_id ? '/parser?job=' + encodeURIComponent(entry.job_id) : '/parser?manual=1&url=' + encodeURIComponent(entry.url);
+    const button = document.getElementById('access-attention-link');
+    button.textContent = entry.status === 'waiting_human' ? 'Вернуться к проверке' : 'Открыть окно проверки';
+    button.disabled = accessCheckPending || !canMutate();
+    button.onclick = () => openManualAccess(entry, button);
     if (!document.title.startsWith('! ')) document.title = '! ' + document.title;
   } catch { /* A parser-specific warning must not replace the page's connection state. */ }
 }

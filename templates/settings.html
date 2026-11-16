@@ -442,8 +442,8 @@ async function loadSettings() {
 
     // Scraper
     document.getElementById('set-scraper-headless').value = data.scraper.headless ? 'true' : 'false';
-    document.getElementById('set-delay-min').value = data.scraper.page_delay_min || 2.0;
-    document.getElementById('set-delay-max').value = data.scraper.page_delay_max || 5.0;
+    document.getElementById('set-delay-min').value = data.scraper.page_delay_min ?? 2.0;
+    document.getElementById('set-delay-max').value = data.scraper.page_delay_max ?? 5.0;
     document.getElementById('set-timeout-ms').value = data.scraper.timeout_ms || 45000;
 
     // Proxy
@@ -655,8 +655,8 @@ async function loadCustomRules() {
           <div class="flex items-center gap-3 min-w-0 flex-1">
             <span class="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold border ${badgeClass}">${deltaStr}</span>
             <div class="min-w-0 flex-1">
-              <div class="text-xs text-slate-200 font-medium truncate">${r.label}</div>
-              <div class="text-[10px] text-slate-500 font-mono truncate">/${r.pattern}/</div>
+              <div class="text-xs text-slate-200 font-medium truncate">${htmlText(r.label)}</div>
+              <div class="text-[10px] text-slate-500 font-mono truncate">/${htmlText(r.pattern)}/</div>
             </div>
           </div>
           <div class="flex items-center gap-1.5 flex-shrink-0">
@@ -680,10 +680,14 @@ async function loadCustomRules() {
 async function addCustomRule() {
   const pattern = document.getElementById('rule-pattern').value.trim();
   const label = document.getElementById('rule-label').value.trim();
-  const scoreDelta = parseInt(document.getElementById('rule-score-delta').value) || -25;
+  const rawScore = document.getElementById('rule-score-delta').value.trim();
+  const scoreDelta = Number(rawScore);
 
   if (!pattern) { showToast('Введите ключевое слово или regex паттерн', 'warning'); return; }
   if (!label) { showToast('Введите описание правила', 'warning'); return; }
+  if (!rawScore || !Number.isInteger(scoreDelta) || scoreDelta < -50 || scoreDelta > 50) {
+    showToast('Укажите целое число баллов от −50 до 50.', 'warning'); return;
+  }
 
   try {
     await apiFetch('/api/scoring/rules', {

@@ -16,6 +16,7 @@ from parse_outcomes import extract_page, finalize
 from access_guard import access_challenge
 from source_policy import SourceCooldown, page_url as build_page_url, source_policy
 from observability import configure_console_output
+from browser_window import WINDOW_WIDTH, WINDOW_HEIGHT, prepare_visible_window
 
 configure_console_output()
 console = Console()
@@ -46,13 +47,13 @@ class AvitoBrowserEngine:
                 "--mute-audio",
                 "--no-first-run",
                 "--no-default-browser-check",
-                "--window-size=1920,1080",
+                "--window-size=1920,1080" if self.headless else f"--window-size={WINDOW_WIDTH},{WINDOW_HEIGHT}",
                 "--disable-extensions",
             ]
         )
 
         context = await browser.new_context(
-            viewport={"width": 1920, "height": 1080},
+            **({'viewport': {'width': 1920, 'height': 1080}} if self.headless else {'no_viewport': True}),
             user_agent=config.scraper.user_agent,
             locale="ru-RU",
             timezone_id="Europe/Moscow",
@@ -199,6 +200,8 @@ class AvitoBrowserEngine:
             context = await self._create_context(p)
             try:
                 page = await context.new_page()
+                if not self.headless:
+                    await prepare_visible_window(page)
 
                 for page_num in range(1, max_pages + 1):
                     page_url = self._build_page_url(url, page_num)
@@ -300,6 +303,8 @@ class AvitoBrowserEngine:
         async with async_playwright() as p:
             context = await self._create_context(p)
             page = await context.new_page()
+            if not self.headless:
+                await prepare_visible_window(page)
 
             try:
                 await source_policy.wait()

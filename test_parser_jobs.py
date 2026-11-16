@@ -145,6 +145,34 @@ class ParserJobTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((job['status'], job['outcome'], job['saved_count']), ('cancelled', 'cancelled', 1))
         self.assertIsNotNone(await db.get_item_by_id(item.id))
 
+    async def test_search_access_check_uses_visible_browser_and_keeps_catalog_unchanged(self):
+        item = AvitoItem(id='manual-only', title='Fixture', url='https://www.avito.ru/manual')
+
+        class FixtureBrowser:
+            def __init__(instance, headless=True):
+                instance.headless = headless
+
+            async def parse_search(instance, url, items_callback, access_callback, max_pages, **kwargs):
+                self.assertFalse(instance.headless)
+                self.assertEqual(max_pages, 1)
+                await access_callback({'status':'waiting_human', 'access_message':'Fixture manual check'})
+                await items_callback([item])
+                return ParseResult(items=[item], total_found=1, outcome='success')
+
+        web_server.app.dependency_overrides[get_browser_engine] = FixtureBrowser
+        self.addCleanup(web_server.app.dependency_overrides.pop, get_browser_engine, None)
+        with patch.object(self.monitor, 'clear_access_alert') as clear:
+            response = await self.client.post('/api/parser/start', json={
+                'url':'https://www.avito.ru/fixture', 'engine':'playwright',
+                'headless':False, 'max_pages':1, 'save_to_db':False})
+            self.assertEqual(response.status_code, 200)
+            job = await self.completed(response.json()['job_id'])
+            clear.assert_called_once_with('https://www.avito.ru/fixture')
+        self.assertEqual(job['status'], 'completed')
+        self.assertFalse(job['headless'])
+        self.assertEqual(job['saved_count'], 0)
+        self.assertIsNone(await db.get_item_by_id(item.id))
+
     async def test_human_retry_opens_headed_engine_once_and_reports_wait(self):
         with patch.object(web_server.http_engine, 'parse_search', AsyncMock(return_value=ParseResult(outcome='blocked'))):
             old = await self.completed(await self.start())

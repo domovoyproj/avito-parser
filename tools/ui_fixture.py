@@ -8,12 +8,14 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import uvicorn
 from config import config
+import config as configuration
 from database import db
 from exporter import exporter
 from models import AvitoItem, SearchQuery, SellerInfo, UserRole
 
 
 async def seed(root):
+    configuration.ENV_FILE = root / '.env'
     db.db_path = root / 'fixture.db'
     config.db_path = db.db_path
     config.export_dir = exporter.export_dir = root / 'exports'

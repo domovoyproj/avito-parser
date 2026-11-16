@@ -52,6 +52,7 @@ async function attachParserJob(id) {
   document.getElementById('results-panel').hidden = true;
   parserError('parser-job-error', '');
   await pollParserJob();
+  document.getElementById('live-progress-panel').scrollIntoView({block:'start'});
 }
 
 async function pollParserJob() {
@@ -159,7 +160,13 @@ document.querySelectorAll('[data-preset]').forEach(button=>button.addEventListen
 }));
 const parserParams = new URLSearchParams(location.search);
 if (parserParams.has('url')) document.getElementById('parser-url').value = parserParams.get('url');
-if (parserParams.get('manual') === '1') document.getElementById('parser-headless').value = 'false';
+if (parserParams.get('manual') === '1') {
+  document.getElementById('parser-headless').value = 'false';
+  document.getElementById('parser-engine').value = 'playwright';
+  document.getElementById('parser-max-pages').value = '1';
+  document.getElementById('parser-save-db').checked = false;
+  document.getElementById('btn-start-parse').textContent = 'Открыть окно проверки';
+}
 const rememberedJob = parserParams.get('job') || (!parserParams.has('url') ? sessionStorage.getItem('avito-parser-job') : null);
 if (rememberedJob) attachParserJob(rememberedJob);
 window.addEventListener('pagehide', () => clearTimeout(parserPoll));

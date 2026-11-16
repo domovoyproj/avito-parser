@@ -5,14 +5,22 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from browser_engine import AvitoBrowserEngine
+import browser_window
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 from fastapi import HTTPException
 import test_storage
 from models import AISettings
+from ai_scoring import DealScoringEngine
+from models import AvitoItem
+from models import SearchQuery
+from pydantic import ValidationError
+from routers.searches import SearchCreateRequest, api_update_search
 from routers.settings import (
     SaveAISettingsRequest, TestAIRequest, api_save_ai_settings, api_test_ai_connection,
+    CustomRuleCreateRequest, api_add_scoring_rule,
 )
 
 
@@ -113,3 +121,103 @@ class AISettingsRegressionTests(unittest.IsolatedAsyncioTestCase):
                 await api_test_ai_connection(self.request(), db=self.db)
             client.assert_not_called()
         self.assertEqual(caught.exception.status_code, 400)
+
+    async def test_invalid_rule_is_not_saved(self):
+        with self.assertRaises(HTTPException) as caught:
+            await api_add_scoring_rule(CustomRuleCreateRequest(pattern='(', label='Broken', score_delta=-7), db=self.db)
+        self.assertEqual(caught.exception.status_code, 400)
+        self.assertEqual(await self.db.get_custom_scoring_rules(active_only=False), [])
+
+
+class CustomRuleRegressionTests(unittest.TestCase):
+    def setUp(self):
+        for name in ('_custom_penalties', '_custom_boosters'):
+            context = patch.object(DealScoringEngine, name, [])
+            context.start()
+            self.addCleanup(context.stop)
+
+    def test_custom_weights_zero_and_combined_builtin_defects(self):
+        for text in ('Проверочный маркер', 'Проверочный маркер, не включается'):
+            item = AvitoItem(id='rules-fixture', title=text, price=100,
+                             url='https://www.avito.ru/fixture')
+            DealScoringEngine.load_custom_rules([])
+            baseline = DealScoringEngine.evaluate_item(item)[0]
+            for delta in (-7, -35, 0, 12):
+                with self.subTest(text=text, delta=delta):
+                    DealScoringEngine.load_custom_rules([dict(pattern='маркер', label='Custom rule', score_delta=delta)])
+                    score, _, reasons, flaws = DealScoringEngine.evaluate_item(item)
+                    self.assertEqual(score, max(0, min(100, baseline + delta)))
+                    self.assertEqual('Custom rule' in flaws, delta < 0)
+                    self.assertEqual('Custom rule' in reasons, delta > 0)
+
+    def test_legacy_invalid_regex_does_not_break_scoring(self):
+        item = AvitoItem(id='rules-fixture', title='Маркер', price=100, url='https://www.avito.ru/fixture')
+        baseline = DealScoringEngine.evaluate_item(item)[0]
+        DealScoringEngine.load_custom_rules([
+            dict(pattern='(', label='Bad rule', score_delta=-25),
+            dict(pattern='маркер', label='Good rule', score_delta=-7),
+        ])
+        result = DealScoringEngine.evaluate_item(item)
+        self.assertEqual(result[0], max(0, baseline - 7))
+        self.assertEqual(result[3], ['Good rule'])
+
+
+class SearchSettingsRegressionTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        await test_storage.StorageTests.asyncSetUp(self)
+        self.search_id = await self.db.add_search(SearchQuery(name='Fixture',
+            url='https://www.avito.ru/fixture', enabled=False,
+            active_hours_start=9, active_hours_end=19))
+
+    async def test_edit_keeps_unrepresented_schedule_and_accepts_explicit_hours(self):
+        payload = dict(name='Renamed', url='https://www.avito.ru/fixture', enabled=False, min_price=0)
+        await api_update_search(self.search_id, SearchCreateRequest(**payload), self.db)
+        saved = await self.db.get_search_by_id(self.search_id)
+        self.assertEqual((saved.name, saved.min_price, saved.active_hours_start, saved.active_hours_end), ('Renamed', 0, 9, 19))
+        await api_update_search(self.search_id, SearchCreateRequest(**payload, active_hours_start=0, active_hours_end=24), self.db)
+        saved = await self.db.get_search_by_id(self.search_id)
+        self.assertEqual((saved.active_hours_start, saved.active_hours_end), (0, 24))
+
+    async def test_invalid_edited_url_and_price_range_do_not_persist(self):
+        with self.assertRaises(HTTPException):
+            await api_update_search(self.search_id, SearchCreateRequest(name='Bad', url='https://example.com/'), self.db)
+        self.assertEqual((await self.db.get_search_by_id(self.search_id)).name, 'Fixture')
+        for prices in (dict(min_price=-1), dict(min_price=20, max_price=10)):
+            with self.assertRaises(ValidationError):
+                SearchCreateRequest(name='Bad', url='https://www.avito.ru/fixture', **prices)
+
+
+class BrowserWindowRegressionTests(unittest.IsolatedAsyncioTestCase):
+    async def test_visible_browser_uses_compact_resizable_viewport(self):
+        context = MagicMock()
+        context.add_init_script = AsyncMock()
+        browser = MagicMock()
+        browser.new_context = AsyncMock(return_value=context)
+        playwright = MagicMock()
+        playwright.chromium.launch = AsyncMock(return_value=browser)
+        with tempfile.TemporaryDirectory() as tmp:
+            for headless in (False, True):
+                engine = AvitoBrowserEngine(headless=headless)
+                engine.cookies_file = Path(tmp) / 'absent.json'
+                await engine._create_context(playwright)
+                options = browser.new_context.call_args.kwargs
+                if headless:
+                    self.assertEqual(options['viewport'], {'width':1920, 'height':1080})
+                else:
+                    self.assertTrue(options['no_viewport'])
+                    self.assertNotIn('viewport', options)
+                    self.assertIn('--window-size=520,640', playwright.chromium.launch.call_args.kwargs['args'])
+
+    async def test_topmost_targets_only_browser_pid_and_detaches(self):
+        page = MagicMock()
+        session = MagicMock()
+        session.send = AsyncMock(return_value={'processInfo':[
+            {'type':'renderer', 'id':456}, {'type':'browser', 'id':123}]})
+        session.detach = AsyncMock()
+        page.context.browser.new_browser_cdp_session = AsyncMock(return_value=session)
+        with patch.object(browser_window.sys, 'platform', 'win32'), \
+                patch.object(browser_window, 'pin_windows', side_effect=[[], [789]]) as pin, \
+                patch.object(browser_window.asyncio, 'sleep', AsyncMock()):
+            self.assertTrue(await browser_window.prepare_visible_window(page))
+        self.assertEqual([call.args for call in pin.call_args_list], [(123,), (123,)])
+        session.detach.assert_awaited_once()

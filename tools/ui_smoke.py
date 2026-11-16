@@ -5,6 +5,7 @@ import json
 import time
 from pathlib import Path
 from playwright.async_api import async_playwright
+from ui_action_flows import check_actions
 
 
 async def run(destination):
@@ -276,6 +277,7 @@ async def run(destination):
                 await role_page.goto('http://127.0.0.1:18765/parser')
                 assert await role_page.locator('#btn-start-parse').is_disabled()
             await context.close()
+        await check_actions(page)
         assert not errors, errors
         await browser.close()
     print('PASS: 14 responsive screens (360/768/1440), notification history/error/retry, login lockout, menu keyboard, cards/table, search, saved filters, feedback, watchlists, resale calculator, themes, dialogs, export, error/retry, blocked/manual/cancelled job recovery, XSS text, roles; no browser errors')

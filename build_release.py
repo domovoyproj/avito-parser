@@ -24,6 +24,7 @@ INCLUDE_PATTERNS = [
     "templates",
     "ai_scoring.py",
     "browser_engine.py",
+    "browser_window.py",
     "config.py",
     "database.py",
     "exporter.py",

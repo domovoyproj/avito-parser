@@ -25,12 +25,18 @@ logger = logging.getLogger("AvitoAPI")
 class SearchCreateRequest(BaseModel):
     name: str
     url: str
-    min_price: Optional[int] = None
-    max_price: Optional[int] = None
+    min_price: Optional[int] = Field(default=None, ge=0)
+    max_price: Optional[int] = Field(default=None, ge=0)
     check_interval_min: int = Field(default=10, ge=1, le=1440)
     enabled: bool = True
     active_hours_start: int = Field(default=0, ge=0, le=23)
     active_hours_end: int = Field(default=24, ge=1, le=24)
+
+    @model_validator(mode='after')
+    def validate_price_range(self):
+        if self.min_price is not None and self.max_price is not None and self.min_price > self.max_price:
+            raise ValueError('Минимальная цена не должна превышать максимальную')
+        return self
 
 
 @router.post("/api/searches")
@@ -68,6 +74,11 @@ async def api_create_search(
 async def api_update_search(
     search_id: int, req: SearchCreateRequest, db: Database = Depends(get_database)
 ):
+    if not avito_url(req.url):
+        raise HTTPException(status_code=400, detail='Ссылка должна вести на avito.ru')
+    existing = await db.get_search_by_id(search_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail='Поиск не найден')
     search = SearchQuery(
         id=search_id,
         name=req.name,
@@ -76,8 +87,8 @@ async def api_update_search(
         max_price=req.max_price,
         check_interval_min=req.check_interval_min,
         enabled=req.enabled,
-        active_hours_start=req.active_hours_start,
-        active_hours_end=req.active_hours_end,
+        active_hours_start=(req.active_hours_start if 'active_hours_start' in req.model_fields_set else existing.active_hours_start),
+        active_hours_end=(req.active_hours_end if 'active_hours_end' in req.model_fields_set else existing.active_hours_end),
     )
     ok = await db.update_search(search)
     if not ok:
