@@ -231,7 +231,7 @@ class AvitoBrowserEngine:
                         try:
                             await source_policy.wait(manual=manual_recovery)
                             response = await page.goto(page_url, wait_until="domcontentloaded", timeout=config.scraper.timeout_ms)
-                            if response and response.status in (403, 429) and not manual_recovery:
+                            if response and response.status in (403, 429) and self.headless:
                                 self._reset_session(context)
                                 result.outcome = 'blocked'
                                 result.retry_after_seconds = await source_policy.block(response.headers.get('retry-after'))
@@ -251,6 +251,12 @@ class AvitoBrowserEngine:
 
                             # Извлечение объявлений
                             extracted = extract_page(html)
+                            if response and response.status in (403, 429) and extracted.outcome not in ('success', 'empty'):
+                                self._reset_session(context)
+                                result.outcome = 'blocked'
+                                result.retry_after_seconds = await source_policy.block(response.headers.get('retry-after'))
+                                result.errors.append(f'HTTP {response.status}: доступ ограничен')
+                                break
                             result.source = extracted.source
                             if extracted.outcome == 'error':
                                 result.errors.extend(extracted.errors)
