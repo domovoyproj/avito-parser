@@ -1,6 +1,7 @@
 """Private, linked-account CRM commands. No access from the legacy admin allowlist alone."""
 import html
 import secrets
+import re
 from decimal import Decimal, InvalidOperation
 from datetime import datetime, timezone
 from aiogram import Router, F, types
@@ -19,6 +20,7 @@ router = Router(name='team_crm')
 
 class CRMInput(StatesGroup):
     command = State()
+    guided = State()
     import_link = State()
     import_name = State()
     import_price = State()
@@ -43,7 +45,7 @@ PROMPTS = {
     'task': 'Введите: задача | срок 2026-12-01T18:00+03:00 | номер сделки или - | ID ответственного или - (вы)',
     'set': 'Введите: номер сделки | поле | значение. Поля: title, stage, purchase, target, owner_id, supplier_id, buyer_id, notes, serial, listing_url, archived. Для очистки: -',
 }
-HELP = ('<b>Общая CRM команды</b>\nВсе суммы — рубли. Для отмены ввода: /cancel.\n'
+COMMAND_HELP = ('<b>Общая CRM команды</b>\nВсе суммы — рубли. Для отмены ввода: /cancel.\n'
         'Перенос: кнопка «В CRM» под уведомлением, ссылка на Авито или пересылка сообщения со ссылкой.\n'
         '/crm import ссылка — перенести объявление\n'
         '/crm — меню\n/crm list — сделки; /crm deal 12 — карточка\n/crm add название | закупка | план\n'
@@ -56,6 +58,12 @@ HELP = ('<b>Общая CRM команды</b>\nВсе суммы — рубли.
         '/crm archived — архив; /crm set 12 | archived | 0 — вернуть сделку\n'
         'Этапы: lead, purchased, repair, ready, listed, reserved, sold, cancelled.\n'
         'Продажа оформляется командой sale. Для отмены продажи: set 12 | stage | listed.')
+HELP = ('<b>CRM в Telegram</b>\n\nОткройте «Сделки» и выберите товар. '
+        'В карточке есть кнопки для расхода, продажи, этапа и изменения данных. '
+        'Бот задаёт один вопрос за раз; перед записью показывает подтверждение.\n\n'
+        'Для переноса с Авито отправьте ссылку или перешлите уведомление бота.\n'
+        '«Подробнее» открывает заметку, расходы и историю.\n\n'
+        'Для отмены нажмите кнопку «Отмена» или отправьте /cancel. /crm возвращает меню.')
 
 
 def money(text):
@@ -71,7 +79,7 @@ def money(text):
 
 
 def rub(value):
-    return '—' if value is None else f'{value / 100:,.2f} ₽'.replace(',', ' ')
+    return '—' if value is None else f'{value / 100:,.2f}'.replace(',', ' ').removesuffix('.00').replace('.', ',') + ' ₽'
 
 
 async def identity(event):
@@ -104,13 +112,13 @@ async def execute(message, user, command, request_key):
     action, args = (bits[0].lower(), bits[1] if len(bits) > 1 else '') if bits else ('menu', '')
     parts = [p.strip() for p in args.split('|')]
     uid = user['id']
-    if action in ('menu', 'help'):
-        await message.answer(HELP if action == 'help' else 'CRM · общая база команды', parse_mode='HTML', reply_markup=MENU)
+    if action in ('menu', 'help', 'commands'):
+        await message.answer(COMMAND_HELP if action == 'commands' else HELP if action == 'help' else 'CRM · общая база команды\nВыберите действие:', parse_mode='HTML', reply_markup=MENU)
         return
     if action in ('list', 'archived'):
         offset = max(0, int(args or 0))
         result = await db.crm_deals(uid, archived=action == 'archived', offset=offset, limit=8)
-        rows = [[(f"#{d['id']} · {d['title'][:35]} · {STAGES[d['stage']]}", f"crm:deal:{d['id']}")] for d in result['items']]
+        rows = [[(f"{d['title'][:35]} · {STAGES[d['stage']]}", f"crm:deal:{d['id']}")] for d in result['items']]
         if offset:
             rows.append([('← Назад', f'crm:{action}:{max(0, offset-8)}')])
         if offset + 8 < result['total']:
@@ -119,15 +127,8 @@ async def execute(message, user, command, request_key):
         await message.answer(f"{'Архив' if action == 'archived' else 'Сделки'}: {result['total']}", reply_markup=keyboard(rows))
         return
     if action == 'deal':
-        d = await db.crm_deal(uid, int(args))
-        text = (f"<b>#{d['id']} · {html.escape(d['title'])}</b>\n{STAGES[d['stage']]}{' · В архиве' if d['archived'] else ''}\n"
-                f"Ответственный: {html.escape(d['owner_name'] or 'Не назначен')}\n"
-                f"Закупка: {rub(d['purchase'])}\nРасходы: {rub(d['expenses'])}\nПлан: {rub(d['target'])}\n"
-                f"Продажа: {rub(d['sale'])}\nПрибыль: {rub(d['profit'])}\n"
-                f"{html.escape(d['notes'][:1000])}")
-        text += '\n' + '\n'.join(f"Расход #{e['id']}: {rub(e['amount'])} · {html.escape(e['note'][:60])}" for e in d['expense_rows'][:8] if not e['voided'])
-        text += '\nИстория:\n' + '\n'.join(html.escape(h['username'] + ': ' + h['action']) for h in d['history'][:4])
-        await message.answer(text, parse_mode='HTML', reply_markup=keyboard([[('Изменить', 'crm:prompt:set'), ('Меню', 'crm:menu')]]))
+        from crm_bot_ui import card
+        await card(message,user,int(args))
         return
     if action in ('summary', 'team'):
         summary = await db.crm_overview(uid)
@@ -141,8 +142,12 @@ async def execute(message, user, command, request_key):
         if action == 'contacts':
             lines = [f"#{r['id']} · {html.escape(r['name'])}\n{html.escape(r['phone'])} {html.escape(r['telegram'])}" for r in result['items']]
         else:
-            lines = [f"{'✓' if r['done'] else '○'} #{r['id']} · {html.escape(r['title'])}\n{datetime.fromtimestamp(r['due_at'], timezone.utc).isoformat()} · сотрудник #{r['owner_id']}" for r in result['items']]
+            from crm_bot_ui import TZ
+            users={u['id']:u['username'] for u in (await db.crm_overview(uid))['users']}
+            lines = [f"{'✓' if r['done'] else '○'} {html.escape(r['title'])}\n{datetime.fromtimestamp(r['due_at'], TZ).strftime('%d.%m.%Y %H:%M')} МСК · {html.escape(users.get(r['owner_id'],'Неактивный сотрудник'))}" for r in result['items']]
         rows = [[('Меню', 'crm:menu')]]
+        if action=='tasks' and user['role'] in ('admin','operator'):
+            rows=[[(('Вернуть: ' if r['done'] else 'Завершить: ')+r['title'][:35],f"crm:ui:taskdone:{r['id']}")] for r in result['items']]+rows
         if offset: rows.append([('← Назад', f'crm:{action}:{max(0, offset-8)}')])
         if offset+8 < result['total']: rows.append([('Далее →', f'crm:{action}:{offset+8}')])
         await message.answer('\n\n'.join(lines) or 'Список пуст', parse_mode='HTML', reply_markup=keyboard(rows))
@@ -236,6 +241,10 @@ async def callback(event: types.CallbackQuery, state: FSMContext):
         await event.answer(str(exc), show_alert=True); return
     await event.answer()
     parts = event.data.split(':')
+    if parts[1] == 'ui':
+        from crm_bot_ui import callback as ui_callback
+        await ui_callback(event.message,user,state,parts[2:])
+        return
     if parts[1] == 'import' and len(parts) == 3:
         await begin_import(event.message, state, user, item_id=parts[2])
         return
@@ -253,9 +262,12 @@ async def callback(event: types.CallbackQuery, state: FSMContext):
             return
         if action not in PROMPTS or user['role'] not in ('admin', 'operator'):
             await event.message.answer('У вас доступ только для просмотра'); return
-        await state.set_state(CRMInput.command)
-        await state.update_data(action=action)
-        await event.message.answer(PROMPTS[action] + '\nОтменить: /cancel')
+        from crm_bot_ui import begin, show_error
+        old_card=re.match(r'^#(\d+)\s*·',event.message.text or '') if action=='set' else None
+        try:
+            await begin(event.message,user,state,'edit' if old_card else action,int(old_card[1]) if old_card else None)
+        except (CRMError,ValidationError,ValueError) as exc:
+            await show_error(event.message,state,exc)
     else:
         await safe_execute(event.message, user, ' '.join(parts[1:]))
 
@@ -272,6 +284,16 @@ async def input_command(message: types.Message, state: FSMContext):
     data = await state.get_data()
     if await safe_execute(message, user, data['action']+' '+(message.text or '')):
         await state.clear()
+
+
+@router.message(CRMInput.guided)
+async def guided_input(message: types.Message, state: FSMContext):
+    try:
+        user=await identity(message)
+    except CRMError as exc:
+        await state.clear();await message.answer(str(exc));return
+    from crm_bot_ui import input_value
+    await input_value(message,user,state)
 
 
 async def begin_import(message, state, user, item_id=None, source_url=''):
