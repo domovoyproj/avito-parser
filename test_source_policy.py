@@ -47,6 +47,7 @@ class SourcePolicyTests(unittest.IsolatedAsyncioTestCase):
                         stack.enter_context(patch.object(module, 'async_playwright', return_value=AsyncMock()))
                         stack.enter_context(patch.object(engine, '_check_and_handle_block', AsyncMock(return_value=False)))
                         stack.enter_context(patch.object(engine, '_emulate_human', AsyncMock()))
+                        stack.enter_context(patch.object(engine, '_load_search_photos', AsyncMock()))
                         stack.enter_context(patch.object(engine, '_save_cookies', AsyncMock()))
                         stack.enter_context(patch.object(module, 'extract_page', side_effect=[ParseResult(items=b, outcome='success') for b in batches]))
                         fetch = context.new_page.return_value.goto
@@ -97,6 +98,7 @@ class SourcePolicyTests(unittest.IsolatedAsyncioTestCase):
                 patch.object(browser_engine.asyncio,'sleep',AsyncMock()), \
                 patch.object(engine,'_check_and_handle_block',AsyncMock(return_value=False)) as check, \
                 patch.object(engine,'_emulate_human',AsyncMock()), \
+                patch.object(engine,'_load_search_photos',AsyncMock()), \
                 patch.object(engine,'_save_cookies',AsyncMock()), \
                 patch.object(browser_engine,'extract_page',return_value=ParseResult(items=[item],outcome='success')):
             result = await engine.parse_search(item.url)

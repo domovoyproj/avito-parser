@@ -125,6 +125,24 @@ class AvitoBrowserEngine:
         except Exception:
             pass
 
+    async def _load_search_photos(self, page: Page, limit=None):
+        """Bring each collected card into view so lazy image URLs enter the DOM."""
+        cards = page.locator('[data-marker="item"], div[data-item-id]')
+        deadline = time.monotonic() + 30
+        try:
+            count = await cards.count()
+            for index in range(min(count, limit if limit is not None else count)):
+                if time.monotonic() >= deadline:
+                    break
+                card = cards.nth(index)
+                try:
+                    await card.scroll_into_view_if_needed(timeout=1500)
+                    await card.locator('img[src^="https://"], img[src^="http://"], img[src^="//"], source[srcset]').first.wait_for(state='attached', timeout=800)
+                except Exception:
+                    continue
+        except Exception:
+            return
+
     async def _check_and_handle_block(self, page: Page, access_callback=None, challenge_state=None, page_num=1, detail_url=None) -> bool:
         """
         Проверка на реальную блокировку IP (429) или вызов капчи.
@@ -247,6 +265,7 @@ class AvitoBrowserEngine:
                                 break
 
                             await self._emulate_human(page)
+                            await self._load_search_photos(page, None if max_items is None else max_items - len(all_items))
                             html = await page.content()
 
                             # Извлечение объявлений

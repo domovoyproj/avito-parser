@@ -52,6 +52,18 @@ class SessionRecoveryTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn('User-Agent', http._get_headers())
         self.assertNotIn('Sec-Ch-Ua', http._get_headers())
 
+    async def test_lazy_photo_scroll_visits_collected_cards_only(self):
+        cards = MagicMock()
+        cards.count = AsyncMock(return_value=50)
+        card = MagicMock(scroll_into_view_if_needed=AsyncMock())
+        card.locator.return_value.first.wait_for = AsyncMock()
+        cards.nth.return_value = card
+        page = MagicMock()
+        page.locator.return_value = cards
+        await AvitoBrowserEngine(headless=True)._load_search_photos(page, 20)
+        self.assertEqual(card.scroll_into_view_if_needed.await_count,20)
+        self.assertEqual(cards.nth.call_args_list[-1].args,(19,))
+
     async def test_detail_statuses_do_not_save_error_pages(self):
         import browser_engine
         for status, expected in ((404,404), (403,429), (500,502), (200,422)):
