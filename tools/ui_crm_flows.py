@@ -14,6 +14,7 @@ async def check_crm(page, destination=None):
             await page.locator(form+' button[type=submit]').click()
         response=await pending.value
         assert response.ok,(endpoint,await response.text())
+        await page.wait_for_function("!document.querySelector('#crm-dialog-body').inert")
         return await response.json()
     await page.click('[data-tab=contacts]')
     await page.click('#crm-contact-add')
@@ -31,8 +32,20 @@ async def check_crm(page, destination=None):
     deal=await submit('#crm-deal-form','/api/crm/deals','POST')
     did=deal['id']
     await page.locator('#crm-expense-form').wait_for()
+    # Closing or adding an expense must not silently lose a deal draft.
+    await page.fill('#crm-deal-form [name=notes]','Keep this draft')
+    page.once('dialog',lambda d:d.dismiss())
+    await page.click('#crm-close')
+    assert await page.locator('#crm-dialog').is_visible()
     await page.fill('#crm-expense-form [name=amount]','1500.50')
     await page.fill('#crm-expense-form [name=note]','CRM repair')
+    await page.click('#crm-expense-form button[type=submit]')
+    await page.locator('#crm-dialog-error').wait_for()
+    assert 'Сначала сохраните' in await page.text_content('#crm-dialog-error')
+    assert await page.input_value('#crm-deal-form [name=notes]')=='Keep this draft'
+    await submit('#crm-deal-form',f'/api/crm/deals/{did}','PUT')
+    await page.wait_for_function("document.querySelector('#crm-expense-form [name=note]').value==='CRM repair'")
+    assert await page.input_value('#crm-expense-form [name=amount]')=='1500.50'
     await submit('#crm-expense-form',f'/api/crm/deals/{did}/expenses','POST')
     await page.wait_for_function("document.querySelector('.crm-ledger').textContent.includes('4')")
     await page.select_option('#crm-deal-form [name=stage]','sold')
@@ -42,11 +55,21 @@ async def check_crm(page, destination=None):
     assert sold['buyer_id']==contact['id']
     await page.wait_for_function("document.querySelector('.crm-ledger').textContent.includes('4')")
     await page.click('#crm-deal-task')
+    await page.locator('#crm-task-form').wait_for()
+    assert await page.input_value('#crm-task-form [name=deal_id]')==str(did)
+    assert 'CRM browser phone' in await page.locator('#crm-task-form [name=deal_id] option:checked').text_content()
+    await page.fill('#crm-task-deal-query','CRM browser phone')
+    await page.click('#crm-task-deal-search')
+    await page.wait_for_function("!document.querySelector('#crm-dialog-body').inert")
+    assert await page.input_value('#crm-task-form [name=deal_id]')==str(did)
     await page.fill('#crm-task-form [name=title]','CRM buyer follow-up')
     await page.fill('#crm-task-form [name=due_at]','2027-01-01T12:00')
     await page.select_option('#crm-task-form [name=owner_id]',label='operator')
     task=await submit('#crm-task-form','/api/crm/tasks','POST')
     assert task['deal_id']==did
+    await page.locator('#crm-deal-form').wait_for()
+    assert 'CRM buyer follow-up' in await page.text_content('#crm-dialog-body')
+    await page.click('#crm-close')
     await page.locator('#crm-dialog').wait_for(state='hidden')
     await page.click('[data-tab=tasks]')
     await page.click(f'[data-task="{task["id"]}"]')
@@ -68,15 +91,38 @@ async def check_crm(page, destination=None):
     assert (await conflict.value).status==409
     await page.locator('#crm-dialog-error').wait_for()
     assert 'коллега' in await page.text_content('#crm-dialog-error')
+    page.once('dialog',lambda d:d.accept())
     await page.click('#crm-close')
     await page.click(f'[data-deal="{did}"]')
     await page.wait_for_function("document.querySelector('#crm-deal-form [name=notes]').value==='Colleague changed'")
     if destination:
         await page.screenshot(path=str(destination/'crm-deal-1440.png'),full_page=True)
     await page.click('#crm-close')
+    # Search reset and retry recover from empty results and transient failures.
+    await page.fill('#crm-query','absent-fixture-product')
+    await page.click('#crm-search')
+    await page.wait_for_function("document.querySelector('#crm-count').textContent==='0–0 из 0'")
+    await page.click('#crm-reset')
+    await page.locator(f'[data-deal="{did}"]').wait_for()
+    await page.route('**/api/crm/deals?*',lambda r:r.fulfill(status=503,content_type='application/json',body='{"detail":"Временная ошибка"}'))
+    await page.click('#crm-search')
+    await page.locator('#crm-retry').wait_for()
+    await page.unroute('**/api/crm/deals?*')
+    await page.click('#crm-retry')
+    await page.locator(f'[data-deal="{did}"]').wait_for()
+    await page.click('[data-tab=contacts]')
+    await page.fill('#crm-contact-query','absent-contact')
+    assert await page.locator('[data-contact]').count()==0
+    await page.fill('#crm-contact-query','fixture phone')
+    assert await page.locator(f'[data-contact="{contact["id"]}"]').count()==1
+    await page.click('[data-tab=deals]')
     for width in (1440,768,360):
         await page.set_viewport_size({'width':width,'height':1000})
         assert await page.evaluate('document.documentElement.scrollWidth<=innerWidth'),width
+        if width==360:
+            assert await page.locator('#crm-deal-list .crm-table').evaluate('(el)=>el.scrollWidth<=el.clientWidth')
+            await page.locator('#crm-deal-list tbody tr').first.scroll_into_view_if_needed()
+            if destination:await page.screenshot(path=str(destination/'crm-records-360.png'))
         if destination:await page.screenshot(path=str(destination/f'crm-{width}.png'),full_page=True)
     await page.set_viewport_size({'width':1440,'height':1000})
     # Catalogue import preserves the source item and proposed purchase amount.
@@ -91,7 +137,7 @@ async def main():
     destination=Path('ui-artifacts/crm');destination.mkdir(parents=True,exist_ok=True)
     async with async_playwright() as p:
         browser=await p.chromium.launch()
-        page=await browser.new_page(viewport={'width':1440,'height':1000})
+        page=await browser.new_page(viewport={'width':1440,'height':1000},reduced_motion='reduce')
         errors=[];page.on('pageerror',lambda e:errors.append(str(e)))
         await page.goto(BASE+'/login')
         await page.fill('#input-username','admin');await page.fill('#input-password','fixture-password-2026')

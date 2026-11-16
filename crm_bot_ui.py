@@ -1,6 +1,7 @@
 """Button-first Telegram CRM: one question at a time, reviewed writes, version checks."""
 import html
 import secrets
+from copy import deepcopy
 from datetime import datetime, timezone, timedelta
 from pydantic import ValidationError
 from database import db
@@ -13,6 +14,8 @@ FIELDS = {'title':'Название', 'purchase':'Цена закупки', 'tar
           'buyer_id':'Покупатель', 'serial':'Серийный номер', 'listing_url':'Ссылка на продажу',
           'source_url':'Ссылка на закупку'}
 CATEGORIES = {'repair':'Ремонт','delivery':'Доставка','commission':'Комиссия','other':'Другое'}
+RECORD_FIELDS = {'contact':{'name':'Имя','phone':'Телефон','telegram':'Telegram','notes':'Заметка'},
+                 'task':{'title':'Название','due_at':'Срок','owner_id':'Ответственный'}}
 
 
 def esc(value):
@@ -39,7 +42,7 @@ async def card(message, user, deal_id, detail=False):
     if d['notes']:lines.append('\n'+esc(d['notes'][:160])+('…' if len(d['notes'])>160 else ''))
     rows=[]
     if writable_role(user):
-        rows=[[('➕ Расход',f'crm:ui:expense:{deal_id}'),('💰 Продать',f'crm:ui:sale:{deal_id}')],
+        rows=[[('➕ Расход',f'crm:ui:expense:{deal_id}'),('Изменить продажу' if d['stage']=='sold' else '💰 Продать',f'crm:ui:sale:{deal_id}')],
               [('Этап',f'crm:ui:stage:{deal_id}'),('✏️ Изменить',f'crm:ui:edit:{deal_id}')],
               [('Добавить задачу',f'crm:ui:task:{deal_id}')]]
     rows += [[('Подробнее',f'crm:ui:details:{deal_id}'),('Все сделки','crm:list:0')]]
@@ -54,6 +57,7 @@ async def card(message, user, deal_id, detail=False):
         lines.append('\n<b>Последние изменения</b>')
         lines.extend(esc(h['username']+': '+h['action']) for h in d['history'][:3])
         rows=[[('Расходы',f'crm:ui:ledger:{deal_id}:0'),('Назад к карточке',f'crm:deal:{deal_id}')]]
+        if len(d['notes'])>900:rows.insert(0,[('Заметка целиком',f'crm:ui:notes:{deal_id}:0')])
     await message.answer('\n'.join(lines),parse_mode='HTML',reply_markup=keyboard(rows),disable_web_page_preview=True)
 
 
@@ -71,15 +75,25 @@ async def select_deal(message,user,action,offset=0):
     await message.answer('Выберите сделку:' if result['total'] else 'Сделок пока нет. Добавьте товар или перенесите объявление.',reply_markup=keyboard(rows))
 
 
-async def ask(message,state,flow,step,text,choices=None,optional=False):
-    flow=flow|{'step':step,'token':secrets.token_hex(5)}
+async def ask(message,state,flow,step,text,choices=None,optional=False,remember=True):
+    previous=(await state.get_data()).get('ui')
+    flow=deepcopy(flow)
+    if remember and previous and previous.get('op') and previous['op']==flow.get('op'):
+        # Back restores the state before the previous answer, not just its prompt.
+        trail=deepcopy(previous.get('trail',[]))
+        if step!=previous['step']:
+            trail.append({k:deepcopy(v) for k,v in previous.items() if k!='trail'})
+        flow['trail']=trail
+    flow.update(step=step,token=secrets.token_hex(5),screen={'text':text,'choices':choices,'optional':optional})
     await state.set_state('CRMInput:guided')
     await state.set_data({'ui':flow})
     token=flow['token']
     rows=[[(label,f'crm:ui:pick:{token}:{value}')] for label,value in (choices or [])]
     if optional:rows.append([('Пропустить',f'crm:ui:pick:{token}:skip')])
     if step=='confirm':rows.insert(0,[('✅ Сохранить',f'crm:ui:save:{token}')])
-    rows.append([('Отмена',f'crm:ui:cancel:{token}')])
+    navigation=[('Отмена',f'crm:ui:cancel:{token}')]
+    if flow.get('trail'):navigation.insert(0,('← Назад',f'crm:ui:back:{token}'))
+    rows.append(navigation)
     await message.answer(text,parse_mode='HTML',reply_markup=keyboard(rows))
 
 
@@ -143,7 +157,7 @@ async def choose_reference(message,user,state,flow,offset):
         result=await db.crm_records(user['id'],'contacts',offset,8);total=result['total']
         labels=[(c['name'][:50],str(c['id'])) for c in result['items']]
     flow['allowed']=[value for _,value in labels]
-    if flow['kind']!='task':
+    if flow['kind'] not in ('task','task_edit'):
         flow['allowed'].append('clear')
         labels.append(('Не назначен' if field=='owner_id' else 'Не указан','clear'))
     if offset:labels.append(('← Назад',f'page{max(0,offset-8)}'))
@@ -158,9 +172,15 @@ async def review(message,state,flow,text):
 
 async def accept(message,user,state,value,from_button=False):
     writable(user)
-    flow=(await state.get_data()).get('ui')
+    flow=deepcopy((await state.get_data()).get('ui'))
     if not flow or flow.get('actor')!=user['id']:raise CRMError('Откройте карточку заново')
     step,data=flow['step'],flow['data']
+    if step=='record_field':
+        field=flow['field']
+        if from_button and (value!='clear' or field=='name'):raise CRMError('Выберите действие заново')
+        data[field]='' if from_button else value
+        ContactInput.model_validate(data)
+        await review(message,state,flow,RECORD_FIELDS['contact'][field]+': <b>'+esc(data[field] or 'Убрать значение')+'</b>');return
     if step=='confirm':raise CRMError('Нажмите «Сохранить» или «Отмена» под подтверждением')
     if step=='field':
         field=flow['field']
@@ -187,7 +207,7 @@ async def accept(message,user,state,value,from_button=False):
             name=selected.username
         else:name=(await record('contacts',int(value),user['id']))['name']
         text=FIELDS[field]+': <b>'+esc(name)+'</b>'
-        if flow['kind']=='task':
+        if flow['kind'] in ('task','task_edit'):
             text=f"<b>{esc(data['title'])}</b>\nСрок: {datetime.fromisoformat(data['due_at']).strftime('%d.%m.%Y %H:%M')} МСК\n"+text
         await review(message,state,flow,text);return
     if step=='stage':
@@ -244,13 +264,28 @@ async def accept(message,user,state,value,from_button=False):
     if step=='task_title':
         if not 1<=len(value)<=300:raise CRMError('Задача: от 1 до 300 символов')
         data['title']=value
-        await ask(message,state,flow,'task_due','Когда напомнить? Например: <b>20.11.2026 18:00</b>\nВремя московское (UTC+3).');return
+        if flow['kind']=='task_edit':await review(message,state,flow,'Название: <b>'+esc(value)+'</b>');return
+        await ask_due(message,state,flow);return
     if step=='task_due':
+        if from_button:
+            if value not in flow.get('due_choices',{}):raise CRMError('Выберите срок заново')
+            value=flow['due_choices'][value]
         try:data['due_at']=datetime.strptime(value,'%d.%m.%Y %H:%M').replace(tzinfo=TZ).isoformat()
-        except ValueError:raise CRMError('Введите дату и время, например 20.11.2026 18:00')
+        except ValueError:raise CRMError('Введите дату и время в формате ДД.ММ.ГГГГ ЧЧ:ММ или выберите срок кнопкой.')
+        if datetime.fromisoformat(data['due_at'])<=datetime.now(TZ):raise CRMError('Этот срок уже прошёл. Укажите будущее время.')
+        if flow['kind']=='task_edit':await review(message,state,flow,'Новый срок: <b>'+esc(value)+' МСК</b>');return
         flow['field']='owner_id'
         await choose_reference(message,user,state,flow,0);return
     raise CRMError('Откройте карточку заново')
+
+
+async def ask_due(message,state,flow):
+    now=datetime.now(TZ)
+    times={'hour':now+timedelta(hours=1),'tomorrow':(now+timedelta(days=1)).replace(hour=18,minute=0)}
+    flow['due_choices']={key:value.strftime('%d.%m.%Y %H:%M') for key,value in times.items()}
+    example=flow['due_choices']['tomorrow']
+    await ask(message,state,flow,'task_due',f'Когда напомнить? Выберите срок или напишите дату: <b>{example}</b>\nВремя московское (UTC+3).',
+              choices=[('Через час','hour'),('Завтра в 18:00','tomorrow')])
 
 
 async def stage_review(message,state,flow):
@@ -268,11 +303,14 @@ async def save(message,user,state,flow):
     elif kind in ('contact','task'):
         result=await db.crm_save_record(user['id'],'contacts' if kind=='contact' else 'tasks',data)
         await state.clear()
-        await message.answer('Контакт сохранён.' if kind=='contact' else 'Задача сохранена. Бот напомнит ответственному в срок.',reply_markup=keyboard([[('Меню','crm:menu')]]))
+        await message.answer('✅ Сохранено')
+        await record_card(message,user,kind,result['id'])
         return
-    elif kind=='task_done':
-        await db.crm_save_record(user['id'],'tasks',data,flow['record_id'],flow['version'])
-        await state.clear();await message.answer('Статус задачи обновлён.',reply_markup=keyboard([[('Задачи','crm:tasks:0')]]));return
+    elif kind in ('task_done','task_edit','contact_edit'):
+        record_kind='contact' if kind=='contact_edit' else 'task'
+        await db.crm_save_record(user['id'],record_kind+'s',data,flow['record_id'],flow['version'])
+        await state.clear();await message.answer('✅ Сохранено')
+        await record_card(message,user,record_kind,flow['record_id']);return
     else:
         result=await db.crm_save_deal(user['id'],data,did,flow.get('version'))
         did=result['id']
@@ -282,18 +320,61 @@ async def save(message,user,state,flow):
     await card(message,user,did)
 
 
+async def record_card(message,user,kind,record_id):
+    r=await record(kind+'s',record_id,user['id'])
+    title=r['name'] if kind=='contact' else r['title']
+    lines=['<b>'+esc(title)+'</b>'];rows=[]
+    if kind=='contact':
+        lines.extend(esc(r[key]) for key in ('phone','telegram','notes') if r[key])
+    else:
+        owner=await db.get_user_by_id(r['owner_id'])
+        lines.extend(['Завершена' if r['done'] else 'Открыта',datetime.fromtimestamp(r['due_at'],TZ).strftime('%d.%m.%Y %H:%M')+' МСК',
+                      'Ответственный: '+esc(owner.username if owner else 'Неактивный сотрудник')])
+        if r['deal_id']:rows.append([('Открыть сделку',f"crm:deal:{r['deal_id']}")])
+        if writable_role(user):rows.append([('Вернуть в работу' if r['done'] else '✓ Завершить',f'crm:ui:taskdone:{record_id}')])
+    if writable_role(user):
+        entries=list(RECORD_FIELDS[kind].items())
+        rows.extend([[(label,f'crm:ui:{kind}edit:{record_id}:{field}') for field,label in entries[i:i+2]] for i in range(0,len(entries),2)])
+    rows.append([('Все контакты' if kind=='contact' else 'Все задачи',f'crm:{kind}s:0'),('Меню','crm:menu')])
+    await message.answer('\n'.join(lines),parse_mode='HTML',reply_markup=keyboard(rows))
+
+
+async def edit_record(message,user,state,kind,record_id,field):
+    writable(user)
+    if field not in RECORD_FIELDS[kind]:raise CRMError('Выберите поле заново')
+    r=await record(kind+'s',record_id,user['id'])
+    model=ContactInput if kind=='contact' else TaskInput
+    data={key:r[key] for key in model.model_fields}
+    if kind=='task':data['due_at']=datetime.fromtimestamp(r['due_at'],TZ).isoformat()
+    flow={'kind':kind+'_edit','record_id':record_id,'version':r['version'],'actor':user['id'],
+          'op':secrets.token_hex(12),'field':field,'data':data}
+    if field=='owner_id':await choose_reference(message,user,state,flow,0);return
+    if field=='due_at':await ask_due(message,state,flow);return
+    await ask(message,state,flow,'record_field' if kind=='contact' else 'task_title',
+              RECORD_FIELDS[kind][field]+': отправьте новое значение.\nСейчас: '+esc(str(data[field] or 'Не указано')[:200]),
+              choices=[('Очистить','clear')] if kind=='contact' and field!='name' else None)
+
+
 async def callback(message,user,state,args):
     try:
         action=args[0]
-        if action in ('pick','save','cancel'):
+        if action in ('pick','save','cancel','back'):
             saved=await state.get_data()
             if action=='save' and saved.get('ui_completed')==args[1]:await card(message,user,saved['ui_deal']);return
             flow=saved.get('ui')
             if not flow or flow['token']!=args[1] or flow['actor']!=user['id']:
                 raise CRMError('Эта кнопка устарела. Откройте карточку заново.')
+            if action=='back':
+                writable(user)
+                trail=deepcopy(flow.get('trail',[]))
+                if not trail:raise CRMError('Вы уже на первом шаге')
+                previous=trail.pop();previous['trail']=trail
+                await ask(message,state,previous,previous['step'],**previous['screen'],remember=False);return
             if action=='cancel':
                 await state.clear()
-                if flow.get('deal_id'):await card(message,user,flow['deal_id'])
+                if flow.get('record_id'):
+                    await record_card(message,user,'contact' if flow['kind']=='contact_edit' else 'task',flow['record_id'])
+                elif flow.get('deal_id'):await card(message,user,flow['deal_id'])
                 else:await message.answer('Отменено.',reply_markup=keyboard([[('Меню','crm:menu')]]))
                 return
             if action=='save':
@@ -302,7 +383,18 @@ async def callback(message,user,state,args):
             else:await accept(message,user,state,args[2],True)
             return
         await state.clear()
+        if action in ('contact','taskcard'):
+            await record_card(message,user,'contact' if action=='contact' else 'task',int(args[1]));return
+        if action in ('contactedit','taskedit'):
+            await edit_record(message,user,state,'contact' if action=='contactedit' else 'task',int(args[1]),args[2]);return
         if action=='details':await card(message,user,int(args[1]),True);return
+        if action=='notes':
+            did,offset=int(args[1]),max(0,int(args[2]));d=await db.crm_deal(user['id'],did)
+            rows=[]
+            if offset:rows.append([('← Назад',f'crm:ui:notes:{did}:{max(0,offset-1800)}')])
+            if offset+1800<len(d['notes']):rows.append([('Далее →',f'crm:ui:notes:{did}:{offset+1800}')])
+            rows.append([('К карточке',f'crm:deal:{did}')])
+            await message.answer(esc(d['notes'][offset:offset+1800]) or 'Заметка пуста.',parse_mode='HTML',reply_markup=keyboard(rows));return
         if action=='choose':await select_deal(message,user,args[1],int(args[2]));return
         if action=='ledger':
             did,offset=int(args[1]),int(args[2]);d=await db.crm_deal(user['id'],did)
@@ -341,6 +433,7 @@ async def show_error(message,state,exc):
         elif field in ('listing_url','source_url'):text='Отправьте полную ссылку, начинающуюся с https:// или http://, без логина и пароля.'
     rows=[]
     if flow.get('deal_id'):rows.append([('Открыть свежую карточку',f"crm:deal:{flow['deal_id']}")])
+    if flow.get('record_id'):rows.append([('Открыть свежую карточку',f"crm:ui:{'contact' if flow['kind']=='contact_edit' else 'taskcard'}:{flow['record_id']}")])
     if flow.get('token'):rows.append([('Отмена',f"crm:ui:cancel:{flow['token']}")])
     await message.answer(text,reply_markup=keyboard(rows) if rows else None)
 
@@ -350,8 +443,11 @@ async def input_value(message,user,state):
     if text.startswith('/'):
         flow=(await state.get_data()).get('ui',{})
         await state.clear()
-        if flow.get('deal_id'):await card(message,user,flow['deal_id'])
+        if flow.get('record_id'):await record_card(message,user,'contact' if flow['kind']=='contact_edit' else 'task',flow['record_id'])
+        elif flow.get('deal_id'):await card(message,user,flow['deal_id'])
         else:await message.answer('Отменено. /crm — меню')
         return
-    try:await accept(message,user,state,text)
+    try:
+        if not text:raise CRMError('На этом шаге отправьте текст или выберите кнопку под вопросом.')
+        await accept(message,user,state,text)
     except (CRMError,ValidationError,ValueError) as exc:await show_error(message,state,exc)
