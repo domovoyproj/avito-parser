@@ -44,7 +44,7 @@ class DealScoringEngine:
     """Двухуровневый движок оценки выгодности и надежности сделки"""
 
     # Пользовательские правила скоринга (загружаются из БД)
-    _custom_penalties: List[Tuple[str, str]] = []
+    _custom_penalties: List[Tuple[str, str, int]] = []
     _custom_boosters: List[Tuple[str, str, int]] = []
 
     @classmethod
@@ -202,20 +202,21 @@ class DealScoringEngine:
             reasons.append(anomaly)
 
         # 6.7. Пользовательские правила скоринга
+        builtin_defect_count = len(flaws)
         if cls._custom_penalties or cls._custom_boosters:
             combined_lower = combined_text.lower()
-            for pattern, label in cls._custom_penalties:
+            for pattern, label, delta in cls._custom_penalties:
                 if re.search(pattern, combined_lower, re.IGNORECASE):
                     flaws.append(label)
+                    score += delta
             for pattern, label, delta in cls._custom_boosters:
                 if re.search(pattern, combined_lower, re.IGNORECASE):
                     score += delta
                     reasons.append(label)
 
-        # 7. Штрафы за обнаруженные риски и дефекты (до -30 баллов)
-        if flaws:
-            defect_count = len(flaws)
-            penalty = min(30, defect_count * 25)
+        # Built-in defects keep their cap; custom rules use their explicit weights.
+        if builtin_defect_count:
+            penalty = min(30, builtin_defect_count * 25)
             score -= penalty
 
         # Ограничение диапазона 0-100
@@ -324,8 +325,13 @@ class DealScoringEngine:
             delta = int(rule.get("score_delta", 0))
             if not pattern or not label:
                 continue
+            try:
+                re.compile(pattern)
+            except re.error:
+                logger.warning('Skipped an invalid custom scoring pattern')
+                continue
             if delta < 0:
-                cls._custom_penalties.append((pattern, label))
+                cls._custom_penalties.append((pattern, label, delta))
             elif delta > 0:
                 cls._custom_boosters.append((pattern, label, delta))
 

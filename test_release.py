@@ -28,6 +28,8 @@ class ReleaseTests(unittest.TestCase):
                 self.assertIn('avito_parser/'+name,names)
                 self.assertIn('avito_parser/'+name,linux_names)
             self.assertFalse(any(name.endswith(('.db','.env','.pyc','-wal','-shm')) for name in names))
+            self.assertIn('avito_parser/browser_window.py', names)
+            self.assertIn('avito_parser/browser_window.py', linux_names)
             env = dict(os.environ, PYTHONPATH='', APP_ENV_FILE=str(root/'absent.env'), BOOTSTRAP_ADMIN_PASSWORD='')
             subprocess.run([sys.executable,'-c',f'import web_server, manage_db, version; assert web_server.app.version == version.VERSION == {VERSION!r}'],
                            cwd=root/'unpacked'/'avito_parser',env=env,check=True,capture_output=True)

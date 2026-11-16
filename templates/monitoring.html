@@ -326,12 +326,15 @@ function renderSearchesTable() {
       </td>
       <td class="py-3 px-3 text-[11px] text-slate-400 font-mono">
         ${htmlText(formatRelativeTime(s.last_checked_at))}
-        ${searchAccessAlerts.some(a=>a.search_id===s.id) ? '<a class="access-inline-link" href="/parser?url=' + encodeURIComponent(s.url) + '">Ограничен доступ · проверить</a>' : ''}
+        ${searchAccessAlerts.some(a=>a.search_id===s.id) ? '<button type="button" class="access-inline-link" data-write onclick="checkSearchAccess(' + s.id + ', this)">Открыть окно проверки</button>' : ''}
         ${s.enabled && s.last_checked_at && Date.now() - new Date(s.last_checked_at).getTime() > Math.max(10, 2 * (s.check_interval_min || 10)) * 60000 ? '<span class="block text-amber-300">Проверка задерживается</span>' : ''}
       </td>
       <td class="py-3 px-3 text-right space-x-1 whitespace-nowrap">
         <button onclick="checkSearchNow(${s.id})" title="Проверить сейчас" class="p-1.5 rounded bg-slate-900 hover:bg-slate-800 text-emerald-400 border border-white/[0.06] transition">
           <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+        </button>
+        <button type="button" onclick="checkSearchAccess(${s.id}, this)" title="Ручная проверка доступа" data-write class="p-1.5 rounded bg-slate-900 hover:bg-slate-800 text-blue-400 border border-white/[0.06] transition">
+          <i data-lucide="shield-check" class="w-3.5 h-3.5"></i>
         </button>
         <button onclick="openEditSearchModal(${s.id})" title="Редактировать" class="p-1.5 rounded bg-slate-900 hover:bg-slate-800 text-blue-400 border border-white/[0.06] transition">
           <i data-lucide="sliders" class="w-3.5 h-3.5"></i>
@@ -354,6 +357,12 @@ async function toggleSearchItem(id) {
   } catch (e) {
     showToast(e.message, 'error');
   }
+}
+
+async function checkSearchAccess(id, button) {
+  const search = searchesList.find(item => item.id === id);
+  if (!search) { showToast('Поиск не найден. Обновите страницу.', 'error'); return; }
+  await openManualAccess({url:search.url}, button);
 }
 
 async function checkSearchNow(id) {
@@ -420,8 +429,8 @@ function openEditSearchModal(id) {
   document.getElementById('modal-search-id').value = item.id;
   document.getElementById('modal-name').value = item.name;
   document.getElementById('modal-url').value = item.url;
-  document.getElementById('modal-min-price').value = item.min_price || '';
-  document.getElementById('modal-max-price').value = item.max_price || '';
+  document.getElementById('modal-min-price').value = item.min_price ?? '';
+  document.getElementById('modal-max-price').value = item.max_price ?? '';
   document.getElementById('modal-interval').value = item.check_interval_min || 10;
   document.getElementById('modal-enabled').checked = item.enabled;
 

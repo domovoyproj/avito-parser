@@ -62,11 +62,11 @@
         {% if user and user.role != 'viewer' %}<a href="/parser" class="button-primary header-new"><i data-lucide="plus"></i><span>Новый сбор</span></a>{% endif %}
       </div>
     </header>
-    <div id="access-attention" class="access-attention global-attention" role="alert" hidden><i data-lucide="shield-alert"></i><div><strong>Авито требует внимания</strong><p id="access-attention-text"></p></div><a id="access-attention-link" class="button-secondary" href="/parser">Проверить доступ</a><button id="access-dismiss" class="icon-button" onclick="dismissAccessAttention()" aria-label="Скрыть уведомление о завершённой задаче" hidden><i data-lucide="x"></i></button></div>
+    <div id="access-attention" class="access-attention global-attention" role="alert" hidden><i data-lucide="shield-alert"></i><div><strong>Авито требует внимания</strong><p id="access-attention-text"></p></div><button type="button" id="access-attention-link" class="button-secondary" data-write>Открыть окно проверки</button><button id="access-dismiss" class="icon-button" onclick="dismissAccessAttention()" aria-label="Скрыть уведомление о завершённой задаче" hidden><i data-lucide="x"></i></button></div>
     <main id="main-content" tabindex="-1">{% block content %}{% endblock %}</main>
   </div>
   <div id="toast-container" class="fixed bottom-5 right-5 z-50 flex flex-col gap-2 pointer-events-auto" aria-live="polite"></div>
-  <script src="/static/js/app.js?v=2.6.0"></script>
+  <script src="/static/js/app.js?v=2.7.1"></script>
   {% block scripts %}{% endblock %}
 </body>
 </html>
