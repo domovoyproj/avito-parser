@@ -123,6 +123,9 @@ async def execute(message, user, command, request_key):
             rows.append([('← Назад', f'crm:{action}:{max(0, offset-8)}')])
         if offset + 8 < result['total']:
             rows.append([('Далее →', f'crm:{action}:{offset+8}')])
+        rows.append([('Активные сделки' if action=='archived' else 'Архив', 'crm:list:0' if action=='archived' else 'crm:archived:0')])
+        if user['role'] in ('admin','operator'):
+            rows.append([('Новая сделка','crm:prompt:add'),('Перенести объявление','crm:prompt:import')])
         rows.append([('Меню', 'crm:menu')])
         await message.answer(f"{'Архив' if action == 'archived' else 'Сделки'}: {result['total']}", reply_markup=keyboard(rows))
         return
@@ -146,8 +149,9 @@ async def execute(message, user, command, request_key):
             users={u['id']:u['username'] for u in (await db.crm_overview(uid))['users']}
             lines = [f"{'✓' if r['done'] else '○'} {html.escape(r['title'])}\n{datetime.fromtimestamp(r['due_at'], TZ).strftime('%d.%m.%Y %H:%M')} МСК · {html.escape(users.get(r['owner_id'],'Неактивный сотрудник'))}" for r in result['items']]
         rows = [[('Меню', 'crm:menu')]]
-        if action=='tasks' and user['role'] in ('admin','operator'):
-            rows=[[(('Вернуть: ' if r['done'] else 'Завершить: ')+r['title'][:35],f"crm:ui:taskdone:{r['id']}")] for r in result['items']]+rows
+        rows=[[(r['name' if action=='contacts' else 'title'][:45],f"crm:ui:{'contact' if action=='contacts' else 'taskcard'}:{r['id']}")] for r in result['items']]+rows
+        if user['role'] in ('admin','operator'):
+            rows.insert(-1,[('Добавить контакт' if action=='contacts' else 'Добавить задачу','crm:prompt:contact' if action=='contacts' else 'crm:prompt:task')])
         if offset: rows.append([('← Назад', f'crm:{action}:{max(0, offset-8)}')])
         if offset+8 < result['total']: rows.append([('Далее →', f'crm:{action}:{offset+8}')])
         await message.answer('\n\n'.join(lines) or 'Список пуст', parse_mode='HTML', reply_markup=keyboard(rows))
