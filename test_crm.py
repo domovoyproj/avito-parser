@@ -172,10 +172,16 @@ class CRMTests(unittest.IsolatedAsyncioTestCase):
             event=types.CallbackQuery(id='fixture',from_user=sender,chat_instance='fixture',message=msg('menu'),data='crm:prompt:add')
             await dp.feed_update(bot,types.Update(update_id=3,callback_query=event))
             self.assertIn('название',answer.call_args.args[0])
-            await dp.feed_update(bot,types.Update(update_id=4,message=msg('Телефон | 100 | 150',4)))
+            await dp.feed_update(bot,types.Update(update_id=4,message=msg('Телефон',4)))
+            await dp.feed_update(bot,types.Update(update_id=5,message=msg('100',5)))
+            await dp.feed_update(bot,types.Update(update_id=6,message=msg('150',6)))
+            state=dp.fsm.get_context(bot=bot,chat_id=456,user_id=456)
+            token=(await state.get_data())['ui']['token']
+            confirm=event.model_copy(update={'id':'save','data':'crm:ui:save:'+token})
+            await dp.feed_update(bot,types.Update(update_id=7,callback_query=confirm))
             self.assertEqual((await db.crm_deals(uid))['total'],1)
             await db.unlink_telegram_chat(uid,456)
-            await dp.feed_update(bot,types.Update(update_id=5,message=msg('/crm')))
+            await dp.feed_update(bot,types.Update(update_id=8,message=msg('/crm')))
             self.assertIn('привяжите',answer.call_args.args[0])
 
     async def test_export_formula_and_html_are_data(self):

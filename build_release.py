@@ -25,7 +25,7 @@ INCLUDE_PATTERNS = [
     "ai_scoring.py",
     "browser_engine.py",
     "browser_window.py", "browser_session.py",
-    "crm_models.py", "crm_bot.py", "crm_links.py",
+    "crm_models.py", "crm_bot.py", "crm_links.py", "crm_bot_ui.py",
     "config.py",
     "database.py",
     "exporter.py",
