@@ -8,7 +8,7 @@ env.pop("BOOTSTRAP_ADMIN_PASSWORD", None)
 commands = [
     ["-m", "unittest", "test_config", "test_security", "test_storage", "test_parser", "test_parser_jobs", "test_monitoring", "test_watchlists", "test_feedback", "test_catalog_search", "test_exporter", "test_llm", "test_observability", "test_bot_security", "test_dependencies", "test_export_jobs", "test_release", "test_source_policy", "test_notifications", "test_runtime_fixes", "-v"],
     ["-m", "unittest", "test_recovery_controls", "-v"],
-    ["-m", "unittest", "test_crm", "-v"],
+    ["-m", "unittest", "test_crm", "test_crm_import", "-v"],
     ["test_suite.py"], ["test_panel_regressions.py"], ["test_ai_scoring_engine.py"],
 ]
 if __name__ == "__main__":

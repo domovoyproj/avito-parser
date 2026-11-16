@@ -4,6 +4,7 @@ import time
 from datetime import datetime, timezone
 import aiosqlite
 from crm_models import DealInput, ExpenseInput, ContactInput, TaskInput, CRMError, STAGES
+from crm_links import listing_reference
 
 
 async def init_crm(connection):
@@ -77,7 +78,24 @@ def deal_dict(row):
     return value
 
 
+async def find_source(connection, item_id, source_url, include_archived=False):
+    ref = listing_reference(source_url)
+    rows = await (await connection.execute('SELECT id,item_id,source_url FROM crm_deals' +
+        ('' if include_archived else ' WHERE archived=0') + ' ORDER BY archived,id')).fetchall()
+    for row in rows:
+        other = listing_reference(row['source_url'])
+        if (item_id and row['item_id'] == item_id) or (ref and other and ref[0] == other[0]):
+            return row['id']
+    return None
+
+
 class CRMRepository:
+    async def crm_find_import(self, user_id, item_id=None, source_url=''):
+        async with self.connection() as c:
+            c.row_factory = aiosqlite.Row
+            await actor(c, user_id)
+            return await find_source(c, item_id, source_url, include_archived=True)
+
     async def crm_telegram_user(self, chat_id):
         async with self.connection() as c:
             c.row_factory = aiosqlite.Row
@@ -130,7 +148,7 @@ class CRMRepository:
                 WHERE entity='deal' AND entity_id=? ORDER BY h.id DESC LIMIT 100''', (deal_id,))).fetchall()]
             return result
 
-    async def crm_save_deal(self, user_id, payload, deal_id=None, version=None):
+    async def crm_save_deal(self, user_id, payload, deal_id=None, version=None, *, reuse_source=False):
         data = DealInput.model_validate(payload).model_dump()
         if data['stage'] not in ('lead', 'cancelled') and data['purchase'] is None:
             raise CRMError('Укажите цену закупки')
@@ -142,6 +160,13 @@ class CRMRepository:
             c.row_factory = aiosqlite.Row
             await c.execute('BEGIN IMMEDIATE')
             await actor(c, user_id, True)
+            if not deal_id:
+                existing = await find_source(c, data['item_id'], data['source_url'], include_archived=reuse_source)
+                if existing:
+                    if reuse_source:
+                        await c.rollback()
+                        return await self.crm_deal(user_id, existing)
+                    raise CRMError(f'Это объявление уже в сделке №{existing}', 409)
             await reference(c, 'users', data['owner_id'])
             for key in ('supplier_id', 'buyer_id'):
                 await reference(c, 'crm_contacts', data[key])

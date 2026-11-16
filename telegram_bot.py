@@ -16,6 +16,7 @@ from exporter import exporter
 from models import AvitoItem, SearchQuery, TelegramChatSettings
 from browser_engine import browser_engine
 from coordination import lease
+from crm_links import message_links, import_button
 logger = logging.getLogger("AvitoTelegramBot")
 
 dp = Dispatcher()
@@ -73,8 +74,9 @@ class AdminCommandMiddleware(BaseMiddleware):
         current_state = await state.get_state() if state else None
         crm_event = ((isinstance(event, types.Message) and event.text and event.text.split()[0].split('@')[0] == '/crm') or
                      (isinstance(event, types.CallbackQuery) and (event.data or '').startswith('crm:')) or
-                     (isinstance(event, types.Message) and current_state == 'CRMInput:command' and
-                      (not (event.text or '').startswith('/') or (event.text or '') == '/cancel')))
+                     (isinstance(event, types.Message) and current_state and current_state.startswith('CRMInput:') and
+                      (not (event.text or '').startswith('/') or (event.text or '') == '/cancel')) or
+                     (isinstance(event, types.Message) and not (event.text or '').startswith('/') and bool(message_links(event))))
         if crm_event:
             return await handler(event, data)
         if isinstance(event, types.Message) and event.text and event.text.split()[0].split('@')[0] == '/link':
@@ -502,6 +504,7 @@ def build_item_keyboard(item_id: str, item_url: str) -> InlineKeyboardMarkup:
     builder.button(text='🙈 Скрыть', callback_data=f'tg_hide_{item_id}')
     builder.button(text='🤖 AI-анализ', callback_data=f'tg_ai_{item_id}')
     builder.adjust(1, 3)  # первая строка: ссылка на Авито, вторая: 3 кнопки действий
+    builder.row(InlineKeyboardButton(**import_button(item_id)))
     return builder.as_markup()
 
 

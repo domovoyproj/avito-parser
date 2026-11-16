@@ -1,5 +1,6 @@
 import json
 import unittest
+import httpx
 from unittest.mock import AsyncMock, patch
 from config import config
 from database import db
@@ -30,6 +31,26 @@ class DeliveryTests(unittest.IsolatedAsyncioTestCase):
         data = await self.db.get_notification_events()
         self.assertEqual(data['counts'], {'skipped':1})
         self.assertEqual(data['events'][0]['last_error'], 'stale or unavailable')
+
+    async def test_crm_import_button_survives_photo_fallback(self):
+        worker=await self.enqueue()
+        async with self.db.connection() as c:
+            await c.execute("UPDATE items SET main_image='https://example.com/photo.jpg' WHERE id='deal'")
+            await c.commit()
+        job=await worker.claim()
+        payload=json.loads(job['payload'])
+        payload['item']['main_image']='https://example.com/photo.jpg'
+        job['payload']=json.dumps(payload)
+        settings=config.telegram.model_copy(deep=True)
+        settings.bot_token='fixture-only';settings.send_photos=True
+        with patch.object(config,'telegram',settings),patch('outbox.format_item_notification',AsyncMock(return_value='Fixture notification')),patch('outbox.httpx.AsyncClient.post',AsyncMock(side_effect=[httpx.Response(400),httpx.Response(200,json={'ok':True})])) as send:
+            await worker.deliver(job)
+            self.assertEqual(send.await_count,2)
+            self.assertTrue(send.call_args_list[0].args[0].endswith('/sendPhoto'))
+            self.assertTrue(send.call_args_list[1].args[0].endswith('/sendMessage'))
+            for call in send.call_args_list:
+                rows=call.kwargs['json']['reply_markup']['inline_keyboard']
+                self.assertTrue(any(b.get('callback_data')=='crm:import:deal' for row in rows for b in row))
 
     async def test_webhook_honors_minimum_score(self):
         worker = await self.enqueue()
