@@ -15,6 +15,7 @@ from database import db
 from models import AvitoItem
 from notifications import format_item_notification, format_parser_alert
 from security import avito_url
+from crm_links import import_button
 from source_policy import retry_seconds
 
 
@@ -97,7 +98,7 @@ class OutboxWorker:
                     text = await format_item_notification(item, payload['search_name'], payload['type'], database=self.db)
                     message = {'chat_id': chat, 'text': text, 'parse_mode': 'HTML'}
                     if avito_url(item.url):
-                        message['reply_markup'] = {'inline_keyboard': [[{'text': 'Открыть объявление', 'url': item.url}]]}
+                        message['reply_markup'] = {'inline_keyboard': [[{'text': 'Открыть объявление', 'url': item.url}], [import_button(item.id)]]}
                     endpoint = 'sendMessage'
                     if config.telegram.send_photos and settings.send_photos and item.main_image and len(text) < 1000:
                         endpoint = 'sendPhoto'

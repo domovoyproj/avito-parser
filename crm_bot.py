@@ -1,6 +1,6 @@
 """Private, linked-account CRM commands. No access from the legacy admin allowlist alone."""
 import html
-import shlex
+import secrets
 from decimal import Decimal, InvalidOperation
 from datetime import datetime, timezone
 from aiogram import Router, F, types
@@ -11,12 +11,18 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from pydantic import ValidationError
 from database import db
 from crm_models import DealInput, ContactInput, TaskInput, CRMError, STAGES
+from crm_links import listing_reference, message_links
+from security import avito_url
 
 router = Router(name='team_crm')
 
 
 class CRMInput(StatesGroup):
     command = State()
+    import_link = State()
+    import_name = State()
+    import_price = State()
+    import_preview = State()
 
 
 def keyboard(rows):
@@ -24,6 +30,7 @@ def keyboard(rows):
 
 
 MENU = keyboard([[('Сделки', 'crm:list:0'), ('Итоги', 'crm:summary')],
+                 [('Перенести объявление', 'crm:prompt:import')],
                  [('Новая сделка', 'crm:prompt:add'), ('Расход', 'crm:prompt:expense')],
                  [('Продажа', 'crm:prompt:sale'), ('Контакты', 'crm:contacts:0')],
                  [('Задачи', 'crm:tasks:0'), ('Новая задача', 'crm:prompt:task')],
@@ -37,6 +44,8 @@ PROMPTS = {
     'set': 'Введите: номер сделки | поле | значение. Поля: title, stage, purchase, target, owner_id, supplier_id, buyer_id, notes, serial, listing_url, archived. Для очистки: -',
 }
 HELP = ('<b>Общая CRM команды</b>\nВсе суммы — рубли. Для отмены ввода: /cancel.\n'
+        'Перенос: кнопка «В CRM» под уведомлением, ссылка на Авито или пересылка сообщения со ссылкой.\n'
+        '/crm import ссылка — перенести объявление\n'
         '/crm — меню\n/crm list — сделки; /crm deal 12 — карточка\n/crm add название | закупка | план\n'
         '/crm expense 12 | 500 | доставка\n/crm sale 12 | 18000\n/crm set 12 | stage | repair\n'
         '/crm set 12 | owner_id | 2\n/crm void 12 | 3 — отменить расход №3\n'
@@ -111,7 +120,7 @@ async def execute(message, user, command, request_key):
         return
     if action == 'deal':
         d = await db.crm_deal(uid, int(args))
-        text = (f"<b>#{d['id']} · {html.escape(d['title'])}</b>\n{STAGES[d['stage']]}\n"
+        text = (f"<b>#{d['id']} · {html.escape(d['title'])}</b>\n{STAGES[d['stage']]}{' · В архиве' if d['archived'] else ''}\n"
                 f"Ответственный: {html.escape(d['owner_name'] or 'Не назначен')}\n"
                 f"Закупка: {rub(d['purchase'])}\nРасходы: {rub(d['expenses'])}\nПлан: {rub(d['target'])}\n"
                 f"Продажа: {rub(d['sale'])}\nПрибыль: {rub(d['profit'])}\n"
@@ -208,6 +217,14 @@ async def command(message: types.Message, state: FSMContext):
     except CRMError as exc:
         await message.answer(str(exc)); return
     bits = (message.text or '').split(maxsplit=1)
+    if len(bits)>1 and (bits[1].split(maxsplit=1)[0] == 'import' or listing_reference(bits[1])):
+        value = bits[1].removeprefix('import').strip()
+        if not value:
+            await state.set_state(CRMInput.import_link)
+            await message.answer('Пришлите ссылку на объявление Авито или перешлите сообщение с ней. Отмена: /cancel')
+        else:
+            await begin_import(message, state, user, source_url=value)
+        return
     await safe_execute(message, user, bits[1] if len(bits)>1 else '')
 
 
@@ -218,10 +235,22 @@ async def callback(event: types.CallbackQuery, state: FSMContext):
     except CRMError as exc:
         await event.answer(str(exc), show_alert=True); return
     await event.answer()
-    await state.clear()
     parts = event.data.split(':')
+    if parts[1] == 'import' and len(parts) == 3:
+        await begin_import(event.message, state, user, item_id=parts[2])
+        return
+    if parts[1] in ('saveimport', 'buyimport', 'priceimport', 'cancelimport'):
+        await import_action(event, state, user, parts)
+        return
+    await state.clear()
     if parts[1] == 'prompt':
         action = parts[2]
+        if action == 'import':
+            if user['role'] not in ('admin', 'operator'):
+                await event.message.answer('У вас доступ только для просмотра'); return
+            await state.set_state(CRMInput.import_link)
+            await event.message.answer('Пришлите ссылку на объявление Авито или перешлите сообщение с ней. Отмена: /cancel')
+            return
         if action not in PROMPTS or user['role'] not in ('admin', 'operator'):
             await event.message.answer('У вас доступ только для просмотра'); return
         await state.set_state(CRMInput.command)
@@ -243,3 +272,147 @@ async def input_command(message: types.Message, state: FSMContext):
     data = await state.get_data()
     if await safe_execute(message, user, data['action']+' '+(message.text or '')):
         await state.clear()
+
+
+async def begin_import(message, state, user, item_id=None, source_url=''):
+    ref = listing_reference(source_url) if source_url else None
+    if source_url and not ref:
+        await message.answer('Нужна прямая ссылка на объявление Авито с номером в конце, не ссылка на поиск.'); return
+    if ref:
+        item_id, source_url = ref
+    item = await db.get_item_by_id(item_id) if item_id else None
+    if item:
+        source_url = item.url
+    elif not source_url:
+        source_url = next((url for url in message_links(message) if listing_reference(url)[0] == item_id), '')
+    existing = await db.crm_find_import(user['id'], item_id, source_url)
+    if existing:
+        await state.clear()
+        await message.answer(f'Объявление уже в общей CRM — сделка №{existing}.')
+        await safe_execute(message, user, f'deal {existing}')
+        return
+    if user['role'] not in ('admin', 'operator'):
+        await message.answer('У вас доступ только для просмотра'); return
+    if not source_url or not avito_url(source_url):
+        await message.answer('Объявление больше не найдено в каталоге. Пришлите его ссылку, чтобы заполнить карточку.'); return
+    await state.clear()
+    draft = {'title': (item.title or '')[:200] if item else '', 'source_url': source_url,
+             'item_id': item.id if item else None, 'purchase': item.price*100 if item and item.price is not None else None,
+             'notes': (item.description or '')[:5000] if item else '', 'stage': 'lead', 'owner_id': user['id']}
+    await state.update_data(import_draft=draft, import_nonce=secrets.token_hex(6))
+    if not draft['title']:
+        await state.set_state(CRMInput.import_name)
+        await message.answer('Этого объявления пока нет в каталоге. Ссылка сохранена в черновике. Напишите название товара. Отмена: /cancel')
+    else:
+        await show_import_preview(message, state)
+
+
+async def show_import_preview(message, state):
+    data = await state.get_data()
+    draft, nonce = data['import_draft'], secrets.token_hex(6)
+    await state.update_data(import_nonce=nonce)
+    await state.set_state(CRMInput.import_preview)
+    purchased = draft['stage'] == 'purchased'
+    rows = [[('Сохранить покупку' if purchased else 'Добавить к покупке', f'crm:saveimport:{nonce}')]]
+    if not purchased:
+        rows.append([('Уже куплено', f'crm:buyimport:{nonce}')])
+    rows += [[('Изменить цену', f'crm:priceimport:{nonce}'), ('Отмена', f'crm:cancelimport:{nonce}')]]
+    await message.answer('<b>Перенос в CRM</b>\n' + html.escape(draft['title']) +
+        f"\n{'Фактическая закупка' if purchased else 'Цена объявления'}: {rub(draft['purchase'])}" +
+        f"\nЭтап: {STAGES[draft['stage']]}\n" +
+        ('Название, цена, описание и ссылка взяты из сохранённого каталога.\n' if draft['item_id'] else 'Данные заполнены вручную, ссылка сохранится в сделке.\n') +
+        'Ответственный — вы. Сделка будет общей для команды.\n' +
+        '<a href="' + html.escape(draft['source_url'], quote=True) + '">Объявление на Авито</a>',
+        parse_mode='HTML', reply_markup=keyboard(rows), disable_web_page_preview=True)
+
+
+async def import_action(event, state, user, parts):
+    data = await state.get_data()
+    nonce = parts[2] if len(parts) == 3 else ''
+    if data.get('import_completed_nonce') == nonce and data.get('import_completed_id'):
+        await safe_execute(event.message, user, f"deal {data['import_completed_id']}")
+        return
+    if not nonce or data.get('import_nonce') != nonce or not data.get('import_draft'):
+        await event.message.answer('Этот черновик больше не активен. Нажмите «В CRM» у объявления или отправьте ссылку заново.'); return
+    if parts[1] == 'cancelimport':
+        await state.clear()
+        await event.message.answer('Перенос отменён. Сделка не создана.'); return
+    if user['role'] not in ('admin', 'operator'):
+        await event.message.answer('У вас доступ только для просмотра'); return
+    if parts[1] == 'saveimport' and await state.get_state() != CRMInput.import_preview.state:
+        await event.message.answer('Сначала введите цену и подтвердите обновлённую карточку.'); return
+    if parts[1] in ('buyimport', 'priceimport'):
+        if parts[1] == 'buyimport':
+            draft = data['import_draft'] | {'stage': 'purchased'}
+            await state.update_data(import_draft=draft)
+        await state.set_state(CRMInput.import_price)
+        await event.message.answer('Введите фактическую цену закупки в рублях.' if parts[1] == 'buyimport' else 'Введите цену в рублях. Для неизвестной цены на этапе «К покупке» отправьте -.')
+        return
+    try:
+        saved = await db.crm_save_deal(user['id'], data['import_draft'], reuse_source=True)
+    except (CRMError, ValidationError) as exc:
+        await event.message.answer(str(exc) if isinstance(exc, CRMError) else 'Проверьте название и сумму. Перешлите ссылку заново.'); return
+    await state.set_state(None)
+    await state.set_data({'import_completed_nonce': nonce, 'import_completed_id': saved['id']})
+    await event.message.answer(f"Готово: сделка №{saved['id']} в общей CRM. Если её уже добавил коллега, открыта существующая карточка.")
+    await safe_execute(event.message, user, f"deal {saved['id']}")
+
+
+@router.message(CRMInput.import_link, F.text | F.caption)
+@router.message(CRMInput.import_name, F.text | F.caption)
+@router.message(CRMInput.import_price, F.text | F.caption)
+@router.message(CRMInput.import_preview, F.text | F.caption)
+async def import_input(message: types.Message, state: FSMContext):
+    try:
+        user = await identity(message)
+    except CRMError as exc:
+        await state.clear(); await message.answer(str(exc)); return
+    text = (message.text or message.caption or '').strip()
+    if text.startswith('/'):
+        await state.clear(); await message.answer('Ввод отменён. /crm — меню'); return
+    links = message_links(message)
+    if links:
+        await receive_links(message, state, user, links); return
+    data = await state.get_data()
+    current = await state.get_state()
+    if current == CRMInput.import_link.state:
+        await message.answer('Пришлите прямую ссылку на объявление Авито. Для отмены: /cancel'); return
+    if user['role'] not in ('admin','operator'):
+        await state.clear(); await message.answer('У вас доступ только для просмотра'); return
+    draft = data.get('import_draft')
+    if not draft:
+        await state.clear(); await message.answer('Пришлите ссылку заново.'); return
+    if current == CRMInput.import_name.state:
+        if not 1 <= len(text) <= 200:
+            await message.answer('Название должно содержать от 1 до 200 символов.'); return
+        draft['title'] = text
+        await state.update_data(import_draft=draft)
+        await state.set_state(CRMInput.import_price)
+        await message.answer('Укажите цену объявления в рублях. Если неизвестна — отправьте -.'); return
+    if current == CRMInput.import_price.state:
+        try:
+            value = money(text)
+            if value is None and draft['stage'] == 'purchased':
+                raise CRMError('Для купленного товара нужна фактическая цена закупки')
+        except CRMError as exc:
+            await message.answer(str(exc)); return
+        draft['purchase'] = value
+        await state.update_data(import_draft=draft)
+        await show_import_preview(message, state)
+        return
+    await message.answer('Выберите действие под карточкой выше или отправьте /cancel.')
+
+
+async def receive_links(message, state, user, links):
+    if len(links) != 1:
+        await message.answer('В сообщении несколько объявлений. Пришлите одно, чтобы не перепутать товары.'); return
+    await begin_import(message, state, user, source_url=links[0])
+
+
+@router.message(lambda message: not (message.text or '').startswith('/') and bool(message_links(message)))
+async def import_shared_link(message: types.Message, state: FSMContext):
+    try:
+        user = await identity(message)
+    except CRMError as exc:
+        await message.answer(str(exc)); return
+    await receive_links(message, state, user, message_links(message))
