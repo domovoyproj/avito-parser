@@ -86,7 +86,7 @@ class MonitoringService:
                 async with lock:
                     async with lease(f"search:{search.id}") as acquired:
                         if acquired:
-                            result = await asyncio.wait_for(self._check_search(search), timeout=180)
+                            result = await asyncio.wait_for(self._check_search(search), timeout=3600)
                             if result.get('outcome') == 'blocked':
                                 self._access_failure(search, result.get('retry_after_seconds', 0))
                             elif result.get('outcome') in ('success', 'empty'):
@@ -146,20 +146,20 @@ class MonitoringService:
             result = None
             engine_used = "http"
             try:
-                result = await http_engine.parse_search(search.url, max_pages=1)
+                result = await http_engine.parse_search(search.url, max_pages=50, max_items=search.max_items)
             except Exception as e:
                 logger.debug(f"HTTP-парсер не смог обработать '{search.name}': {e}")
                 result = None
 
-            if result and result.outcome == "blocked":
+            if result and result.outcome == "blocked" and not result.items:
                 return {"new": 0, "drops": 0, "errors": 1, "outcome": "blocked", "engine": "http", "retry_after_seconds": result.retry_after_seconds}
             if not result or (not result.items and result.outcome != 'empty'):
                 engine_used = "browser"
-                result = await browser_engine.parse_search(search.url, max_pages=1)
+                result = await browser_engine.parse_search(search.url, max_pages=50, max_items=search.max_items)
 
             logger.info(f"⚙️ Поиск '{search.name}': использован {engine_used}-движок")
 
-            if result.outcome in ("blocked", "error"):
+            if result.outcome in ("blocked", "error") and not result.items:
                 return {"new": 0, "drops": 0, "errors": 1, "outcome": result.outcome, "engine": engine_used, "retry_after_seconds": result.retry_after_seconds}
 
             if result.items:
@@ -197,7 +197,9 @@ class MonitoringService:
             if search.id is not None:
                 await db.update_search_last_checked(search.id)
 
-        return {"new": new_count, "drops": drop_count, "found": len(result.items), "outcome": result.outcome, "engine": engine_used}
+        return {"new": new_count, "drops": drop_count, "found": len(result.items), "outcome": result.outcome, "engine": engine_used,
+                "limit_reached": result.limit_reached, "retry_after_seconds": result.retry_after_seconds,
+                "errors": int(bool(result.errors))}
 
     @observed('monitoring-cycle')
     async def run_all_now(self, due_only=False):

@@ -22,6 +22,8 @@ def pin_windows(process_id):
     user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
     user32.GetClassNameW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
     user32.IsWindowVisible.argtypes = [wintypes.HWND]
+    user32.GetWindowLongW.argtypes = [wintypes.HWND, ctypes.c_int]
+    user32.GetWindowLongW.restype = wintypes.LONG
     user32.SetWindowPos.argtypes = [wintypes.HWND, wintypes.HWND, ctypes.c_int,
                                    ctypes.c_int, ctypes.c_int, ctypes.c_int, wintypes.UINT]
     user32.SetWindowPos.restype = wintypes.BOOL
@@ -45,6 +47,9 @@ def pin_windows(process_id):
         user32.GetClassNameW(hwnd, name, len(name))
         if not name.value.startswith('Chrome_WidgetWin_'):
             return True
+        if user32.GetWindowLongW(hwnd, -20) & 0x8:  # WS_EX_TOPMOST
+            pinned.append(hwnd)
+            return True  # Preserve a size/position the user already chose.
         info = MonitorInfo()
         info.cbSize = ctypes.sizeof(info)
         monitor = user32.MonitorFromWindow(hwnd, 2)  # MONITOR_DEFAULTTONEAREST
@@ -72,10 +77,14 @@ async def prepare_visible_window(page):
         session = await page.context.browser.new_browser_cdp_session()
         result = await session.send('SystemInfo.getProcessInfo')
         process_id = next(int(item['id']) for item in result['processInfo'] if item['type'] == 'browser')
+        pinned = False
         for _ in range(20):
-            if await asyncio.to_thread(pin_windows, process_id):
-                return True
+            # A popup page can precede its native window. Keep checking even if
+            # the browser already owns another topmost window.
+            pinned = bool(await asyncio.to_thread(pin_windows, process_id)) or pinned
             await asyncio.sleep(.1)
+        if pinned:
+            return True
         logger.warning('Не удалось закрепить видимое окно браузера поверх остальных окон')
     except Exception as exc:
         logger.warning('Не удалось настроить видимое окно браузера: %s', type(exc).__name__)

@@ -28,6 +28,7 @@ class SearchCreateRequest(BaseModel):
     min_price: Optional[int] = Field(default=None, ge=0)
     max_price: Optional[int] = Field(default=None, ge=0)
     check_interval_min: int = Field(default=10, ge=1, le=1440)
+    max_items: int = Field(default=200, ge=1, le=1000)
     enabled: bool = True
     active_hours_start: int = Field(default=0, ge=0, le=23)
     active_hours_end: int = Field(default=24, ge=1, le=24)
@@ -59,6 +60,7 @@ async def api_create_search(
             min_price=req.min_price,
             max_price=req.max_price,
             check_interval_min=req.check_interval_min,
+            max_items=req.max_items,
             enabled=req.enabled,
             active_hours_start=req.active_hours_start,
             active_hours_end=req.active_hours_end,
@@ -86,6 +88,7 @@ async def api_update_search(
         min_price=req.min_price,
         max_price=req.max_price,
         check_interval_min=req.check_interval_min,
+        max_items=req.max_items if 'max_items' in req.model_fields_set else existing.max_items,
         enabled=req.enabled,
         active_hours_start=(req.active_hours_start if 'active_hours_start' in req.model_fields_set else existing.active_hours_start),
         active_hours_end=(req.active_hours_end if 'active_hours_end' in req.model_fields_set else existing.active_hours_end),

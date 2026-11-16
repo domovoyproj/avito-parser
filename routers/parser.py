@@ -18,6 +18,7 @@ logger=logging.getLogger('AvitoParserAPI')
 class ParseSearchRequest(BaseModel):
     url: str
     max_pages: int = Field(default=3, ge=1, le=50)
+    max_items: Optional[int] = Field(default=None, ge=1, le=1000)
     engine: str = Field(default="playwright", description="playwright или http")
     save_to_db: bool = True
     headless: Optional[bool] = None
@@ -61,8 +62,9 @@ async def api_start_parse_search(req: ParseSearchRequest, db: Database = Depends
     if req.engine not in ('http', 'playwright'):
         raise HTTPException(status_code=422, detail='Неизвестный движок')
     job_id = 'job_' + secrets.token_hex(12)
-    job = job_manager.create_job(job_id, req.url, req.max_pages, req.engine)
-    job.update({"save_to_db": req.save_to_db, "headless": req.headless})
+    page_budget = 50 if req.max_items is not None else req.max_pages
+    job = job_manager.create_job(job_id, req.url, page_budget, req.engine)
+    job.update({"save_to_db": req.save_to_db, "headless": req.headless, "max_items": req.max_items, "limit_reached": False})
     collected = {}
     persisted = set()
     counts = {"new_items_count": 0, "price_dropped_count": 0}
@@ -111,14 +113,17 @@ async def api_start_parse_search(req: ParseSearchRequest, db: Database = Depends
 
     async def run_parser_task():
         await job_manager.broadcast(job_id, "progress", {"status": "running"})
-        await job_manager.broadcast(job_id, "log", f"Начат сбор {req.max_pages} страниц. " + ("Результаты сохраняются после каждой страницы." if req.save_to_db else "Сохранение в каталог отключено."))
+        target = f'до {req.max_items} объявлений' if req.max_items is not None else f'{page_budget} страниц'
+        await job_manager.broadcast(job_id, "log", f"Начат сбор {target}. " + ("Результаты сохраняются после каждой страницы." if req.save_to_db else "Сохранение в каталог отключено."))
+        limits = {'max_items': req.max_items} if req.max_items is not None else {}
         if req.engine == "http":
-            result = await http_engine.parse_search(req.url, max_pages=req.max_pages,
-                                                  progress_callback=progress, items_callback=collect)
+            result = await http_engine.parse_search(req.url, max_pages=page_budget,
+                                                  progress_callback=progress, items_callback=collect, **limits)
         else:
             engine = browser_engine if req.headless is None else type(browser_engine)(headless=req.headless)
-            result = await engine.parse_search(req.url, max_pages=req.max_pages, progress_callback=progress,
-                                               items_callback=collect, access_callback=access)
+            result = await engine.parse_search(req.url, max_pages=page_budget, progress_callback=progress,
+                                               items_callback=collect, access_callback=access, **limits)
+        job['limit_reached'] = result.limit_reached
         await collect(result.items)
         for error in result.errors:
             await job_manager.broadcast(job_id, "log", error)
@@ -126,7 +131,7 @@ async def api_start_parse_search(req: ParseSearchRequest, db: Database = Depends
 
     async def bounded_task():
         try:
-            await asyncio.wait_for(run_parser_task(), timeout=job_timeout_seconds(req.max_pages))
+            await asyncio.wait_for(run_parser_task(), timeout=job_timeout_seconds(page_budget))
         except asyncio.TimeoutError:
             await finish("timeout", ["Истекло время сбора. " + persistence_note + " Уменьшите глубину или проверьте доступ к Авито."])
         except asyncio.CancelledError:
@@ -170,6 +175,7 @@ async def retry_human(job_id: str, db: Database = Depends(get_database), job_man
     if existing and existing["status"] in ("pending", "running", "waiting_human"):
         return {"status": "started", "job_id": existing["job_id"]}
     result = await api_start_parse_search(ParseSearchRequest(url=job["url"], max_pages=job["max_pages"],
+                                                             max_items=job.get('max_items'),
                                                              engine="playwright", headless=False,
                                                              save_to_db=job.get("save_to_db", True)),
                                          db, job_manager, http_engine, browser_engine, monitor)

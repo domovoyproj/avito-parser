@@ -37,7 +37,7 @@ from repositories.feedback import FeedbackRepository
 from repositories.notification_events import NotificationEventsRepository
 
 
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
 
 
 class Database(
@@ -196,6 +196,8 @@ class Database(
             # Миграция searches: активные часы мониторинга
             cursor_s = await db.execute("PRAGMA table_info(searches)")
             search_cols = [row[1] for row in await cursor_s.fetchall()]
+            if 'max_items' not in search_cols:
+                await db.execute('ALTER TABLE searches ADD COLUMN max_items INTEGER NOT NULL DEFAULT 200')
             if "active_hours_start" not in search_cols:
                 await db.execute(
                     "ALTER TABLE searches ADD COLUMN active_hours_start INTEGER DEFAULT 0"

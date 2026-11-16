@@ -111,6 +111,21 @@ class ParserJobTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual((await anonymous.get('/api/parser/jobs/' + job['job_id'])).status_code, 401)
         self.assertEqual((await self.client.get('/api/parser/jobs/missing')).status_code, 404)
 
+    async def test_item_limit_reaches_engine_and_saves_more_than_one_page(self):
+        items = [AvitoItem(id=f'limit-{i}', title='Fixture', url=f'https://www.avito.ru/fixture_{i}') for i in range(73)]
+        async def parse(*args, max_items, max_pages, items_callback, **kwargs):
+            self.assertEqual((max_items, max_pages), (73, 50))
+            await items_callback(items[:50])
+            await items_callback(items[50:])
+            return ParseResult(items=items, total_found=73, outcome='success', limit_reached=True)
+        with patch.object(web_server.http_engine, 'parse_search', side_effect=parse):
+            job = await self.completed(await self.start(max_items=73))
+        self.assertEqual((job['saved_count'], job['max_items'], job['limit_reached']), (73, 73, True))
+        self.assertIsNotNone(await db.get_item_by_id('limit-72'))
+        for value in (0, 1001):
+            response = await self.client.post('/api/parser/start', json={'url':'https://www.avito.ru/fixture', 'max_items':value})
+            self.assertEqual(response.status_code, 422)
+
     async def test_timeout_keeps_page_and_reports_actionable_error(self):
         ready = asyncio.Event()
         item = AvitoItem(id='timeout-fixture', title='Fixture', url='https://www.avito.ru/fixture_2')

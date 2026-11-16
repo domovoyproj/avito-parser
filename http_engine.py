@@ -52,10 +52,12 @@ class AvitoHttpEngine:
                 pass
         return cookies_dict
 
-    async def parse_search(self, url: str, max_pages: int = 1, progress_callback=None, items_callback=None) -> ParseResult:
+    async def parse_search(self, url: str, max_pages: int = 1, progress_callback=None, items_callback=None, max_items: Optional[int] = None) -> ParseResult:
         """
         Быстрый HTTP парсинг поисковой выдачи через curl_cffi с TLS-мимикрией Chrome и сессионными куками.
         """
+        if max_items is not None and not 1 <= max_items <= 1000:
+            raise ValueError('max_items must be between 1 and 1000')
         start_time = time.time()
         result = ParseResult()
         all_items: List[AvitoItem] = []
@@ -101,11 +103,14 @@ class AvitoHttpEngine:
                         new_on_page = 0
                         new_items = []
                         for item in page_items:
+                            if max_items is not None and len(all_items) >= max_items:
+                                break
                             if item.id not in seen_ids:
                                 seen_ids.add(item.id)
                                 all_items.append(item)
                                 new_items.append(item)
                                 new_on_page += 1
+                        result.limit_reached = max_items is not None and len(all_items) >= max_items
 
                         console.print(f"[green]✓ Страница {page_num}:[/green] получено {len(page_items)} объявлений")
                         await source_policy.success()
@@ -135,7 +140,7 @@ class AvitoHttpEngine:
                     except Exception as exc:
                         result.errors.append(f'Ошибка сохранения страницы: {type(exc).__name__}')
                         break
-                if not page_success or not new_items:
+                if not page_success or not new_items or result.limit_reached:
                     break
 
                 if page_num < max_pages:

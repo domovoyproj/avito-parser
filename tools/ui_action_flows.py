@@ -34,10 +34,12 @@ async def check_actions(page):
     await page.fill('#modal-min-price', '0')
     await page.fill('#modal-max-price', '40000')
     await page.fill('#modal-interval', '17')
+    await page.fill('#modal-max-items', '500')
     response = await click_response('#search-modal-form button[type="submit"]', f'/api/searches/{sid}', 'PUT')
     assert response.ok
     await page.wait_for_selector('#search-modal.hidden', state='attached')
     saved = next(item for item in await get('/api/searches') if item['id'] == sid)
+    assert saved['max_items'] == 500
     assert (saved['name'], saved['min_price'], saved['max_price'], saved['check_interval_min']) == ('Edited browser fixture search', 0, 40000, 17)
     for enabled in (True, False):
         response = await click_response(f'button[onclick="toggleSearchItem({sid})"]', f'/api/searches/{sid}/toggle', 'PATCH')
@@ -47,6 +49,7 @@ async def check_actions(page):
         await page.locator(f'button[onclick="toggleSearchItem({sid})"]').filter(has_text='АКТИВЕН' if enabled else 'ПАУЗА').wait_for()
     await page.click(f'button[onclick="openEditSearchModal({sid})"]')
     assert await page.input_value('#modal-min-price') == '0'
+    assert await page.input_value('#modal-max-items') == '500'
     await page.fill('#modal-url', 'https://example.com/not-avito')
     response = await click_response('#search-modal-form button[type="submit"]', f'/api/searches/{sid}', 'PUT')
     assert response.status == 400

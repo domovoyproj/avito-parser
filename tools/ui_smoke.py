@@ -225,9 +225,12 @@ async def run(destination):
         await page.route('**/api/parser/start',start_fixture)
         await page.route('**/api/parser/jobs/fixture-job',lambda route: route.fulfill(content_type='application/json',body=json.dumps(state)))
         await page.fill('#parser-url','Samsung Galaxy S25')
+        await page.fill('#parser-max-items','73')
         await page.click('#btn-start-parse')
         await page.wait_for_function("document.getElementById('live-status-text').textContent.includes('ограничил')")
         assert request_payloads[0]['url']=='https://www.avito.ru/rossiya?q=Samsung%20Galaxy%20S25'
+        assert request_payloads[0]['max_items'] == 73
+        assert request_payloads[0]['headless'] is False
         assert '<script>alert(1)</script>' in await page.locator('#parser-result-items').text_content()
         assert await page.locator('#parser-result-items script').count()==0
         assert await page.locator('#parser-result-items a').get_attribute('href')=='#'

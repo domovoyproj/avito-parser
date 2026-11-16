@@ -70,6 +70,7 @@ class SearchQuery(BaseModel):
     min_price: Optional[int] = Field(default=None, description="Минимальная цена фильтра")
     max_price: Optional[int] = Field(default=None, description="Максимальная цена фильтра")
     check_interval_min: int = Field(default=10, description="Интервал проверки в минутах")
+    max_items: int = Field(default=200, ge=1, le=1000, description='Максимум объявлений за одну проверку')
     enabled: bool = Field(default=True, description="Активен ли мониторинг")
     active_hours_start: int = Field(default=0, description='Начало активных часов мониторинга (0-23)')
     active_hours_end: int = Field(default=24, description='Конец активных часов (1-24, 24 = круглосуточно)')
@@ -98,6 +99,7 @@ class PriceStats(BaseModel):
 
 
 class ParseResult(BaseModel):
+    limit_reached: bool = False
     outcome: str = "empty"  # success | empty | partial | blocked | error
     retry_after_seconds: int = 0
     source: Optional[str] = None

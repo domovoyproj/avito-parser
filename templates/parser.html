@@ -12,8 +12,8 @@
         <p id="parser-query-help" class="workspace-muted">Название ищем по всей России. Для города, категории и точных фильтров вставьте ссылку с Авито.</p>
         <div class="search-presets" aria-label="Примеры поиска"><button type="button" data-preset="Samsung Galaxy S25">Samsung Galaxy S25</button><button type="button" data-preset="Xiaomi 15">Xiaomi 15</button><button type="button" data-preset="Google Pixel 10">Google Pixel 10</button></div>
         <div class="parser-options">
-          <div><label for="parser-max-pages">Глубина сбора</label><select id="parser-max-pages"><option value="1">1 страница · быстрый обзор</option><option value="3" selected>3 страницы · начать с этого</option><option value="10">10 страниц · расширенный поиск</option><option value="50">50 страниц · полный сбор</option></select></div>
-          <div><label for="parser-headless">Окно браузера</label><select id="parser-headless"><option value="true">В фоне</option><option value="false">Видимое · для ручной проверки</option></select></div>
+          <div><label for="parser-max-items">Максимум объявлений за запуск</label><input id="parser-max-items" class="app-input" type="number" min="1" max="1000" step="1" value="200" required list="parser-item-presets"><datalist id="parser-item-presets"><option value="50"><option value="100"><option value="200"><option value="500"><option value="1000"></datalist><input type="hidden" id="parser-max-pages" value="50"></div>
+          <div><label for="parser-headless">Окно браузера</label><select id="parser-headless"><option value="false" selected>520×640 · поверх окон</option><option value="true">Без видимого окна</option></select></div>
         </div>
         <label class="check-label"><input type="checkbox" id="parser-save-db" checked> Сохранять объявления в каталог после каждой страницы</label>
         <details class="parser-advanced"><summary>Дополнительные параметры</summary><div class="parser-options"><div><label for="parser-engine">Способ сбора</label><select id="parser-engine"><option value="playwright">Браузер · рекомендуемый</option><option value="http">HTTP · без ручной капчи</option></select></div><div class="workspace-muted">Паузы и прокси берутся из настроек. VPN не отключается автоматически.</div></div></details>
@@ -38,4 +38,4 @@
   </section>
 </div>
 {% endblock %}
-{% block scripts %}<script src="/static/js/parser.js?v=2.7.1"></script>{% endblock %}
+{% block scripts %}<script src="/static/js/parser.js?v=2.7.2"></script>{% endblock %}

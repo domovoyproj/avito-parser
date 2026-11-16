@@ -61,6 +61,9 @@ class AvitoBrowserEngine:
             permissions=["geolocation"],
             color_scheme="dark"
         )
+        if not self.headless:
+            # Includes popup windows created later by the page, not only our first tab.
+            context.on('page', prepare_visible_window)
 
         # Инъекция глубокого антидетект скрипта
         await context.add_init_script("""
@@ -185,10 +188,13 @@ class AvitoBrowserEngine:
         progress_callback: Optional[callable] = None,
         items_callback: Optional[callable] = None,
         access_callback: Optional[callable] = None,
+        max_items: Optional[int] = None,
     ) -> ParseResult:
         """
         Парсинг поисковой выдачи Авито на заданное количество страниц с защитой от сбоев.
         """
+        if max_items is not None and not 1 <= max_items <= 1000:
+            raise ValueError('max_items must be between 1 and 1000')
         start_time = time.time()
         result = ParseResult()
         all_items: List[AvitoItem] = []
@@ -247,11 +253,14 @@ class AvitoBrowserEngine:
                             new_on_page = 0
                             new_items = []
                             for item in page_items:
+                                if max_items is not None and len(all_items) >= max_items:
+                                    break
                                 if item.id not in seen_ids:
                                     seen_ids.add(item.id)
                                     all_items.append(item)
                                     new_items.append(item)
                                     new_on_page += 1
+                            result.limit_reached = max_items is not None and len(all_items) >= max_items
 
                             console.print(f"[green]✓ Страница {page_num}:[/green] найдено {len(page_items)} объявлений (новых {new_on_page})")
 
@@ -279,7 +288,7 @@ class AvitoBrowserEngine:
                         except Exception as exc:
                             result.errors.append(f'Ошибка сохранения страницы: {type(exc).__name__}')
                             break
-                    if not page_loaded or not new_items:
+                    if not page_loaded or not new_items or result.limit_reached:
                         break
 
                     # Пауза между страницами

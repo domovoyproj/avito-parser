@@ -147,6 +147,13 @@
 
       <div class="grid grid-cols-2 gap-3">
         <div>
+          <label for="modal-max-items" class="block text-[11px] font-semibold text-slate-400 mb-1">Максимум объявлений за проверку</label>
+          <input type="number" id="modal-max-items" min="1" max="1000" step="1" value="200" required class="w-full app-input px-3 py-2 text-xs text-white">
+        </div>
+      </div>
+
+      <div class="grid grid-cols-2 gap-3">
+        <div>
           <label class="block text-[11px] font-semibold text-slate-400 mb-1 font-mono">Интервал опроса (мин.)</label>
           <input 
             type="number" 
@@ -317,6 +324,7 @@ function renderSearchesTable() {
       </td>
       <td class="py-3 px-3 text-slate-300 font-mono text-xs">
         ${s.check_interval_min || 10} мин.
+        <div class="workspace-muted">До ${s.max_items ?? 200} объявлений</div>
       </td>
       <td class="py-3 px-3 font-mono">
         <a href="/items?search_id=${s.id}" class="inline-flex items-center gap-1 font-bold text-xs text-blue-400 hover:underline">
@@ -411,6 +419,7 @@ async function triggerCheckAll() {
 function openAddSearchModal() {
   document.getElementById('modal-title').innerText = 'Добавить задачу мониторинга';
   document.getElementById('modal-search-id').value = '';
+  document.getElementById('modal-max-items').value = '200';
   document.getElementById('modal-name').value = '';
   document.getElementById('modal-url').value = '';
   document.getElementById('modal-min-price').value = '';
@@ -427,6 +436,7 @@ function openEditSearchModal(id) {
 
   document.getElementById('modal-title').innerText = 'Редактировать задачу';
   document.getElementById('modal-search-id').value = item.id;
+  document.getElementById('modal-max-items').value = item.max_items ?? 200;
   document.getElementById('modal-name').value = item.name;
   document.getElementById('modal-url').value = item.url;
   document.getElementById('modal-min-price').value = item.min_price ?? '';
@@ -457,6 +467,7 @@ async function saveSearch(e) {
     min_price: minPrice,
     max_price: maxPrice,
     check_interval_min: interval,
+    max_items: Number(document.getElementById('modal-max-items').value),
     enabled: enabled
   };
 

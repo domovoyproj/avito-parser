@@ -6,7 +6,7 @@ from email.utils import format_datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
-from models import AvitoItem
+from models import AvitoItem, ParseResult, SearchQuery
 from source_policy import SourceCooldown, SourcePolicy, page_url, retry_seconds
 from parser_core import AvitoDataExtractor
 import test_storage
@@ -16,6 +16,59 @@ import browser_engine
 
 class SourcePolicyTests(unittest.IsolatedAsyncioTestCase):
     asyncSetUp = test_storage.StorageTests.asyncSetUp
+
+    async def test_both_engines_cap_unique_items_across_pages(self):
+        from contextlib import ExitStack
+        items = [AvitoItem(id=str(i), title='Fixture', url=f'https://www.avito.ru/fixture_{i}') for i in range(100)]
+        for kind in ('http', 'browser'):
+            for cap, pages in ((20, 1), (73, 2)):
+                with self.subTest(kind=kind, cap=cap), ExitStack() as stack:
+                    module = http_engine if kind == 'http' else browser_engine
+                    stack.enter_context(patch.object(module, 'source_policy', AsyncMock()))
+                    stack.enter_context(patch.object(module.asyncio, 'sleep', AsyncMock()))
+                    batches = [items[:50], items[40:]]
+                    if kind == 'http':
+                        session = AsyncMock()
+                        session.__aenter__.return_value = session
+                        session.get.return_value = SimpleNamespace(status_code=200, text='fixture', headers={})
+                        stack.enter_context(patch.object(module, 'AsyncSession', return_value=session))
+                        stack.enter_context(patch.object(module.AvitoDataExtractor, 'extract_from_initial_data', side_effect=batches))
+                        engine = module.AvitoHttpEngine()
+                        fetch = session.get
+                    else:
+                        context = AsyncMock()
+                        context.new_page.return_value.goto.return_value = SimpleNamespace(status=200)
+                        engine = module.AvitoBrowserEngine(headless=True)
+                        stack.enter_context(patch.object(engine, '_create_context', AsyncMock(return_value=context)))
+                        stack.enter_context(patch.object(module, 'async_playwright', return_value=AsyncMock()))
+                        stack.enter_context(patch.object(engine, '_check_and_handle_block', AsyncMock(return_value=False)))
+                        stack.enter_context(patch.object(engine, '_emulate_human', AsyncMock()))
+                        stack.enter_context(patch.object(engine, '_save_cookies', AsyncMock()))
+                        stack.enter_context(patch.object(module, 'extract_page', side_effect=[ParseResult(items=b, outcome='success') for b in batches]))
+                        fetch = context.new_page.return_value.goto
+                    collected = AsyncMock()
+                    result = await engine.parse_search('https://www.avito.ru/fixture', max_pages=50, max_items=cap, items_callback=collected)
+                    self.assertEqual(fetch.await_count, pages)
+                    self.assertEqual([item.id for item in result.items], [str(i) for i in range(cap)])
+                    self.assertEqual(sum(len(call.args[0]) for call in collected.await_args_list), cap)
+                    self.assertEqual(result.total_found, cap)
+                    self.assertTrue(result.limit_reached)
+                    self.assertFalse(result.exhaustive)
+
+    async def test_monitor_keeps_first_page_when_later_page_is_blocked(self):
+        import monitoring
+        search = SearchQuery(name='Fixture', url='https://www.avito.ru/fixture', max_items=73)
+        search.id = await self.db.add_search(search)
+        item = AvitoItem(id='partial-monitor', title='Fixture', url=search.url)
+        parsed = ParseResult(items=[item], outcome='blocked', retry_after_seconds=900, errors=['Blocked'])
+        with patch.object(monitoring, 'db', self.db), \
+                patch.object(monitoring.http_engine, 'parse_search', AsyncMock(return_value=parsed)) as parse, \
+                patch.object(monitoring.browser_engine, 'parse_search', AsyncMock()) as browser:
+            result = await monitoring.MonitoringService()._check_search(search)
+        parse.assert_awaited_once_with(search.url, max_pages=50, max_items=73)
+        browser.assert_not_awaited()
+        self.assertEqual((result['outcome'], result['new'], result['retry_after_seconds']), ('blocked', 1, 900))
+        self.assertIsNotNone(await self.db.get_item_by_id(item.id))
 
     async def test_pause_survives_restart_and_blocks_other_searches(self):
         policy = SourcePolicy(self.db)

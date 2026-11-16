@@ -186,6 +186,26 @@ class SearchSettingsRegressionTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(ValidationError):
                 SearchCreateRequest(name='Bad', url='https://www.avito.ru/fixture', **prices)
 
+    async def test_item_limit_roundtrip_and_legacy_migration(self):
+        payload = dict(name='Fixture', url='https://www.avito.ru/fixture', enabled=False)
+        await api_update_search(self.search_id, SearchCreateRequest(**payload, max_items=73), self.db)
+        await api_update_search(self.search_id, SearchCreateRequest(**payload), self.db)
+        self.assertEqual((await self.db.get_search_by_id(self.search_id)).max_items, 73)
+        self.assertEqual((await self.db.get_searches())[0].max_items, 73)
+        self.assertEqual((await self.db.get_searches_with_counts())[0]['max_items'], 73)
+        for value in (0, 1001):
+            with self.assertRaises(ValidationError):
+                SearchCreateRequest(**payload, max_items=value)
+        async with self.db.connection() as conn:
+            await conn.execute('ALTER TABLE searches DROP COLUMN max_items')
+            await conn.execute('DELETE FROM schema_migrations WHERE version > 11')
+            await conn.commit()
+        await self.db.init_db()
+        self.assertEqual((await self.db.get_search_by_id(self.search_id)).max_items, 200)
+        await api_update_search(self.search_id, SearchCreateRequest(**payload, max_items=500), self.db)
+        await self.db.init_db()
+        self.assertEqual((await self.db.get_search_by_id(self.search_id)).max_items, 500)
+
 
 class BrowserWindowRegressionTests(unittest.IsolatedAsyncioTestCase):
     async def test_visible_browser_uses_compact_resizable_viewport(self):
@@ -204,6 +224,7 @@ class BrowserWindowRegressionTests(unittest.IsolatedAsyncioTestCase):
                 if headless:
                     self.assertEqual(options['viewport'], {'width':1920, 'height':1080})
                 else:
+                    context.on.assert_called_with('page', browser_window.prepare_visible_window)
                     self.assertTrue(options['no_viewport'])
                     self.assertNotIn('viewport', options)
                     self.assertIn('--window-size=520,640', playwright.chromium.launch.call_args.kwargs['args'])
@@ -216,8 +237,8 @@ class BrowserWindowRegressionTests(unittest.IsolatedAsyncioTestCase):
         session.detach = AsyncMock()
         page.context.browser.new_browser_cdp_session = AsyncMock(return_value=session)
         with patch.object(browser_window.sys, 'platform', 'win32'), \
-                patch.object(browser_window, 'pin_windows', side_effect=[[], [789]]) as pin, \
+                patch.object(browser_window, 'pin_windows', side_effect=[[]] + [[789]] * 19) as pin, \
                 patch.object(browser_window.asyncio, 'sleep', AsyncMock()):
             self.assertTrue(await browser_window.prepare_visible_window(page))
-        self.assertEqual([call.args for call in pin.call_args_list], [(123,), (123,)])
+        self.assertEqual([call.args for call in pin.call_args_list], [(123,)] * 20)
         session.detach.assert_awaited_once()

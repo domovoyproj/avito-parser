@@ -30,6 +30,7 @@ async function startParsing(event) {
   try {
     const data = await apiFetch('/api/parser/start', {method:'POST', body:JSON.stringify({
       url:parserSearchUrl(), max_pages:Number(document.getElementById('parser-max-pages').value),
+      max_items:Number(document.getElementById('parser-max-items').value),
       engine:document.getElementById('parser-engine').value,
       headless:document.getElementById('parser-headless').value === 'true',
       save_to_db:document.getElementById('parser-save-db').checked
@@ -77,6 +78,7 @@ async function pollParserJob() {
 
 function renderParserJob(job) {
   const field = document.getElementById('parser-url');
+  if (job.max_items) document.getElementById('parser-max-items').value = job.max_items;
   if (!field.value.trim()) {
     try { field.value = new URL(job.url).searchParams.get('q') || job.url; } catch { field.value = job.url || ''; }
   }
@@ -113,6 +115,7 @@ function renderParserResults(job) {
   document.getElementById('results-panel').hidden = false;
   const items = job.items || [];
   document.getElementById('results-summary-text').textContent = 'Найдено: ' + (job.total_found || 0) + '. Новых в каталоге: ' + (job.new_items_count || 0) + '. Снижений цены: ' + (job.price_dropped_count || 0) + '.';
+  if (job.limit_reached) document.getElementById('results-summary-text').textContent += ' Достигнут выбранный лимит: ' + job.max_items + '.';
   document.getElementById('parser-catalog-link').hidden = !job.save_to_db || !job.saved_count;
   document.getElementById('parser-result-items').innerHTML = items.slice(0,12).map(item =>
     '<article class="deal-card"><img class="deal-image" src="' + safeResourceUrl(item.main_image || '/static/img/no-image.svg') + '" alt="" loading="lazy" onerror="this.onerror=null;this.src=\'/static/img/no-image.svg\'"><div class="deal-body"><strong class="product-price">' + htmlText(formatPrice(item.price)) + '</strong><h3 class="deal-title">' + htmlText(item.title) + '</h3><p class="workspace-muted">' + htmlText(item.address || 'Местоположение не указано') + '</p><a class="button-secondary" href="' + safeResourceUrl(item.url) + '" target="_blank" rel="noopener noreferrer">Открыть на Авито</a></div></article>'
@@ -145,7 +148,7 @@ async function addAsMonitoredSearch() {
     const url = parserSearchUrl();
     const name = prompt('Название постоянного поиска:', document.getElementById('parser-url').value.trim().slice(0,80));
     if (!name?.trim()) return;
-    await apiFetch('/api/searches', {method:'POST', body:JSON.stringify({name:name.trim(),url,check_interval_min:10,enabled:true})});
+    await apiFetch('/api/searches', {method:'POST', body:JSON.stringify({name:name.trim(),url,check_interval_min:10,max_items:Number(document.getElementById('parser-max-items').value),enabled:true})});
     showToast('Поиск сохранён. Управлять расписанием можно в разделе «Поиски».','success');
   } catch (error) { parserError('parser-form-error', error.message); }
 }
@@ -164,6 +167,7 @@ if (parserParams.get('manual') === '1') {
   document.getElementById('parser-headless').value = 'false';
   document.getElementById('parser-engine').value = 'playwright';
   document.getElementById('parser-max-pages').value = '1';
+  document.getElementById('parser-max-items').value = '50';
   document.getElementById('parser-save-db').checked = false;
   document.getElementById('btn-start-parse').textContent = 'Открыть окно проверки';
 }

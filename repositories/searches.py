@@ -10,8 +10,8 @@ class SearchesRepository:
         async with self.connection() as db:
             cursor = await db.execute(
                 """
-                INSERT INTO searches (name, url, min_price, max_price, check_interval_min, enabled, active_hours_start, active_hours_end, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO searches (name, url, min_price, max_price, check_interval_min, enabled, active_hours_start, active_hours_end, max_items, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     search.name,
@@ -22,6 +22,7 @@ class SearchesRepository:
                     search.enabled,
                     search.active_hours_start,
                     search.active_hours_end,
+                    search.max_items,
                     datetime.now(),
                 ),
             )
@@ -43,7 +44,8 @@ class SearchesRepository:
                     check_interval_min = ?,
                     enabled = ?,
                     active_hours_start = ?,
-                    active_hours_end = ?
+                    active_hours_end = ?,
+                    max_items = ?
                 WHERE id = ?
             """,
                 (
@@ -55,6 +57,7 @@ class SearchesRepository:
                     search.enabled,
                     search.active_hours_start,
                     search.active_hours_end,
+                    search.max_items,
                     search.id,
                 ),
             )
@@ -101,6 +104,7 @@ class SearchesRepository:
                         min_price=row["min_price"],
                         max_price=row["max_price"],
                         check_interval_min=row["check_interval_min"],
+                        max_items=row['max_items'],
                         enabled=bool(row["enabled"]),
                         active_hours_start=row["active_hours_start"]
                         if "active_hours_start" in cols_s
@@ -142,6 +146,7 @@ class SearchesRepository:
                         "min_price": r["min_price"],
                         "max_price": r["max_price"],
                         "check_interval_min": r["check_interval_min"],
+                        "max_items": r['max_items'],
                         "enabled": bool(r["enabled"]),
                         "active_hours_start": r["active_hours_start"]
                         if "active_hours_start" in cols_s
@@ -173,6 +178,7 @@ class SearchesRepository:
                     min_price=row["min_price"],
                     max_price=row["max_price"],
                     check_interval_min=row["check_interval_min"],
+                    max_items=row['max_items'],
                     enabled=bool(row["enabled"]),
                     active_hours_start=row["active_hours_start"]
                     if "active_hours_start" in cols_s
