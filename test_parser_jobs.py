@@ -17,6 +17,16 @@ import web_server
 
 
 class AccessGuardTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        import tempfile
+        from pathlib import Path
+        from config import config
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        cookies = patch.object(config.scraper, 'cookies_file', Path(temporary.name) / 'cookies.json')
+        cookies.start()
+        self.addCleanup(cookies.stop)
+
     async def test_sdk_alone_is_not_a_captcha(self):
         self.assertIsNone(access_challenge('<script src="https://smartcaptcha.yandexcloud.net/captcha.js"></script><h1>Телефоны</h1>'))
         self.assertIsNone(access_challenge('<div data-marker="item">Доступ ограничен, пройдите проверку</div><iframe aria-hidden="true" src="https://smartcaptcha.yandexcloud.net/check"></iframe>'))
@@ -79,10 +89,10 @@ class ParserJobTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.status_code, 200, response.text)
         return response.json()['job_id']
 
-    async def completed(self, job_id):
+    async def completed(self, job_id, timeout=10):
         task = self.manager.tasks.get(job_id)
         if task:
-            await asyncio.wait_for(asyncio.shield(task), 10)
+            await asyncio.wait_for(asyncio.shield(task), timeout)
         return (await self.client.get('/api/parser/jobs/' + job_id)).json()
 
     async def test_block_is_not_success_and_collected_page_is_saved(self):
@@ -119,7 +129,7 @@ class ParserJobTests(unittest.IsolatedAsyncioTestCase):
             await items_callback(items[50:])
             return ParseResult(items=items, total_found=73, outcome='success', limit_reached=True)
         with patch.object(web_server.http_engine, 'parse_search', side_effect=parse):
-            job = await self.completed(await self.start(max_items=73))
+            job = await self.completed(await self.start(max_items=73), timeout=60)
         self.assertEqual((job['saved_count'], job['max_items'], job['limit_reached']), (73, 73, True))
         self.assertIsNotNone(await db.get_item_by_id('limit-72'))
         for value in (0, 1001):

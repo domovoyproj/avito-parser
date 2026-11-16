@@ -1,8 +1,57 @@
 """One notification presentation shared by web monitoring and Telegram."""
 import html
+import hashlib
+import json
+import logging
+import time
+import uuid
 from urllib.parse import urlsplit
 from database import db
 from models import AvitoItem
+from config import config
+
+
+async def queue_parser_alert(kind, url, message, database=None):
+    """Durable operational alert, at most one per URL/kind/chat per 15 minutes."""
+    if not config.telegram.bot_token or not config.telegram.admin_chat_ids:
+        return 0
+    database = database or db
+    kind = 'access' if kind in ('blocked', 'captcha', 'waiting_human', 'access') else 'parser_error'
+    now = time.time()
+    scope = hashlib.sha256((kind + ':' + url).encode()).hexdigest()[:24]
+    try:
+        async with database.connection() as connection:
+            await connection.execute('BEGIN IMMEDIATE')
+            row = await (await connection.execute('SELECT name FROM searches WHERE url=? LIMIT 1', (url,))).fetchone()
+            name = row[0] if row else 'Разовый сбор / проверка объявления'
+            payload = json.dumps({'type': kind, 'search_name': name, 'url': url,
+                                  'message': message[:1000]}, ensure_ascii=False)
+            count = 0
+            for chat in set(config.telegram.admin_chat_ids):
+                prefix = f'system:{scope}:{chat}:'
+                previous = await (await connection.execute(
+                    'SELECT 1 FROM notification_outbox WHERE event_key LIKE ? AND created_at>? LIMIT 1',
+                    (prefix + '%', now - 900))).fetchone()
+                if previous:
+                    continue
+                await connection.execute("INSERT INTO notification_outbox(event_key,channel,destination,payload,created_at) VALUES (?,'telegram',?,?,?)",
+                                         (prefix + uuid.uuid4().hex, str(chat), payload, now))
+                count += 1
+            await connection.commit()
+            return count
+    except Exception as exc:
+        logging.getLogger('AvitoNotifications').warning('Не удалось поставить предупреждение в очередь: %s', type(exc).__name__)
+        return 0
+
+
+def format_parser_alert(payload):
+    access = payload['type'] == 'access'
+    title = '⚠️ Авито требует проверки' if access else '❌ Ошибка парсера Авито'
+    action = ('Откройте парсер на компьютере и пройдите проверку в окне браузера. '
+              'Если окно закрыто, нажмите «Ручная проверка доступа».' if access else
+              'Откройте историю проверок в панели. Уже сохранённые объявления остаются в каталоге.')
+    return (f'<b>{title}</b>\nПоиск: {html.escape(str(payload.get("search_name", "Поиск"))[:100])}\n\n'
+            f'{html.escape(str(payload.get("message", ""))[:1000])}\n\n{action}')
 
 async def format_item_notification(item: AvitoItem, search_name: str, notif_type: str = "new", database=None) -> str:
     """Форматирование карточки уведомления для Telegram с бейджами AI Score"""

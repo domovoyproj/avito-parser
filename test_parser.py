@@ -6,6 +6,23 @@ from parse_outcomes import extract_page
 
 
 class ParserTests(unittest.TestCase):
+    def test_photo_sizes_lazy_loading_and_json_dom_merge(self):
+        expected = 'https://30.img.avito.st/photo-large.jpg'
+        for raw in ([{'300x200':'//30.img.avito.st/small.jpg','1000x750':expected}],
+                    {'sizes':{'1000x750':expected}}, expected, [{'url':{'1000x750':expected}}]):
+            item = AvitoDataExtractor._parse_single_json_item({'id':42,'title':'Phone','images':raw})
+            self.assertEqual(item.main_image, expected)
+        html = '''<div data-marker="item" data-item-id="42"><a data-marker="item-title" href="/phone_42">Phone</a>
+        <picture><source srcset="//30.img.avito.st/small.jpg 300w, https://30.img.avito.st/photo-large.jpg 1000w">
+        <img src="/static/assets/placeholder.svg"></picture></div>'''
+        self.assertEqual(extract_page(html).items[0].main_image, expected)
+        json_data = '<script>window.__initialData__ = {"items":[{"id":42,"title":"Phone"}]};</script>'
+        self.assertEqual(extract_page(json_data + html).items[0].main_image, expected)
+        self.assertIsNone(AvitoDataExtractor.image_url('https:/static/assets/placeholder.svg'))
+        self.assertIsNone(AvitoDataExtractor.image_url('javascript:alert(1)'))
+        detail = '<h1 data-marker="item-view/title-info">Phone</h1><meta property="og:image" content="' + expected + '">'
+        self.assertEqual(AvitoDataExtractor.parse_item_detail_page(detail,'42','https://www.avito.ru/phone_42').main_image,expected)
+
     def test_json_formats_and_malformed_cards(self):
         for detailed in (None, "not-a-dict", {"value": 0, "string": "Бесплатно"}):
             raw = {"items": [{"id": 42, "title": "Fixture", "price": "1 200 ₽",
@@ -39,7 +56,7 @@ class ParserTests(unittest.TestCase):
         self.assertEqual(item.price,0)
         self.assertIn('Полное описание',item.description)
         self.assertEqual(item.params['Бренд'],'Fixture')
-        self.assertEqual(item.images,['https://images.test/1280x960/photo.jpg'])
+        self.assertEqual(item.images,['https://images.test/640x480/photo.jpg'])
         raw={'items':[{'id':42,'title':'JSON details','description':'Данные описания','priceDetailed':{'value':100}}]}
         item=AvitoDataExtractor.parse_item_detail_page('<script>window.__initialData__ = '+json.dumps(raw)+';</script>','42','https://www.avito.ru/item_42')
         self.assertEqual(item.title,'JSON details')

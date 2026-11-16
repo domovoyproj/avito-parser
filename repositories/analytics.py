@@ -5,6 +5,16 @@ from models import AuditLogEntry, PriceStats, SystemTelemetry
 
 
 class AnalyticsRepository:
+    async def dismiss_price_drops(self, user_id, history_ids):
+        async with self.connection() as connection:
+            before = connection.total_changes
+            await connection.executemany(
+                'INSERT OR IGNORE INTO price_drop_dismissals(user_id,history_id) '
+                'SELECT ?, id FROM price_history WHERE id=? AND delta<0',
+                [(user_id, event_id) for event_id in set(history_ids)])
+            await connection.commit()
+            return connection.total_changes - before
+
     async def get_price_history(
         self, item_id: Optional[str] = None, limit: int = 50
     ) -> List[Dict[str, Any]]:
@@ -35,7 +45,7 @@ class AnalyticsRepository:
                 )
         return history
 
-    async def get_price_drops(self, limit: int = 50) -> List[Dict[str, Any]]:
+    async def get_price_drops(self, limit: int = 50, user_id=None) -> List[Dict[str, Any]]:
         """Получение списка всех зафиксированных скидок с деталями товаров"""
         drops: List[Dict[str, Any]] = []
         query = """
@@ -47,12 +57,13 @@ class AnalyticsRepository:
               AND (i.is_hidden = 0 OR i.is_hidden IS NULL)
               AND (i.is_closed = 0 OR i.is_closed IS NULL)
               AND (i.is_reserved = 0 OR i.is_reserved IS NULL)
+              AND NOT EXISTS (SELECT 1 FROM price_drop_dismissals d WHERE d.history_id=ph.id AND d.user_id=?)
             ORDER BY ph.created_at DESC
             LIMIT ?
         """
         async with self.connection() as db:
             db.row_factory = aiosqlite.Row
-            cursor = await db.execute(query, (limit,))
+            cursor = await db.execute(query, (user_id, limit))
             rows = await cursor.fetchall()
             for r in rows:
                 discount_pct = (

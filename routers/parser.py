@@ -6,6 +6,8 @@ import logging
 from typing import Any, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
+from browser_session import DetailParseError
+from notifications import queue_parser_alert
 from models import AvitoItem
 from database import Database
 from parser_jobs import ParsingJobManager
@@ -94,6 +96,8 @@ async def api_start_parse_search(req: ParseSearchRequest, db: Database = Depends
 
     async def finish(outcome, errors=None):
         errors = errors or []
+        if outcome in ('timeout', 'error'):
+            await queue_parser_alert('parser_error', req.url, 'Сбор остановлен по тайм-ауту или внутренней ошибке. Проверьте историю в панели.', database=db)
         if outcome in ('success', 'empty') and hasattr(monitor, 'clear_access_alert'):
             monitor.clear_access_alert(req.url)
         if outcome == "blocked" and not job.get("access_message"):
@@ -238,9 +242,12 @@ async def api_parse_item(req: ParseItemRequest, db: Database = Depends(get_datab
         raise HTTPException(status_code=400, detail="Ссылка должна вести на avito.ru")
 
     logger.info(f"🔍 Детальный парсинг карточки: {req.url}")
-    item = await browser_engine.parse_item_detail(req.url)
+    try:
+        item = await browser_engine.parse_item_detail(req.url, manual=True, raise_errors=True)
+    except DetailParseError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     if not item:
-        raise HTTPException(status_code=500, detail="Не удалось извлечь данные объявления (возможно капча или страница удалена)")
+        raise HTTPException(status_code=422, detail="Страница не содержит распознаваемой карточки объявления.")
 
     if req.save_to_db:
         await db.save_item(item)

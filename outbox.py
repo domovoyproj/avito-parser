@@ -12,7 +12,7 @@ import aiosqlite
 from config import config
 from database import db
 from models import AvitoItem
-from notifications import format_item_notification
+from notifications import format_item_notification, format_parser_alert
 from security import avito_url
 from source_policy import retry_seconds
 
@@ -49,6 +49,9 @@ class OutboxWorker:
     async def deliver(self, job):
         try:
             payload = json.loads(job['payload'])
+            if isinstance(payload, dict) and payload.get('type') in ('access', 'parser_error') and job['channel'] == 'telegram':
+                await self.deliver_system(job, payload)
+                return
             item = AvitoItem.model_validate(payload['item'])
             if payload['type'] not in ('new', 'price_drop') or job['channel'] not in ('telegram', 'webhook'):
                 raise ValueError('unsupported event')
@@ -143,6 +146,38 @@ class OutboxWorker:
             if not job:
                 break
             await self.deliver(job)
+
+    async def deliver_system(self, job, payload):
+        retry = min(3600, 30 * (2 ** min(job['attempts'], 7)))
+        try:
+            chat = int(job['destination'])
+            if chat not in config.telegram.admin_chat_ids:
+                await self.finish(job, 'skipped', error='recipient removed', attempted=False)
+                return
+            if not config.telegram.bot_token:
+                await self.finish(job, 'pending', 300, 'telegram disabled', attempted=False)
+                return
+            if time.time() - job['created_at'] > 900:
+                await self.finish(job, 'skipped', error='expired alert', attempted=False)
+                return
+            settings = await self.db.get_chat_settings(chat)
+            if quiet_now(settings, datetime.now().hour):
+                await self.finish(job, 'pending', 300, 'quiet hours', attempted=False)
+                return
+            message = {'chat_id': chat, 'text': format_parser_alert(payload), 'parse_mode': 'HTML'}
+            if avito_url(payload.get('url', '')):
+                message['reply_markup'] = {'inline_keyboard': [[{'text': 'Страница на Авито', 'url': payload['url']}]]}
+            async with httpx.AsyncClient(timeout=15) as client:
+                response = await client.post(f'https://api.telegram.org/bot{config.telegram.bot_token}/sendMessage',json=message)
+            if response.status_code == 200 and response.json().get('ok'):
+                await self.finish(job, 'sent')
+                return
+            if response.status_code == 429:
+                retry = retry_seconds(response.json().get('parameters',{}).get('retry_after',retry))
+            permanent = (400 <= response.status_code < 500 and response.status_code != 429) or job['attempts'] >= 7
+            await self.finish(job, 'failed' if permanent else 'pending', retry, f'HTTP {response.status_code}')
+        except (httpx.HTTPError, ValueError, KeyError, TypeError, AttributeError):
+            await self.finish(job, 'failed' if job['attempts'] >= 7 else 'pending', retry, 'delivery error')
 
     async def run(self):
         while True:

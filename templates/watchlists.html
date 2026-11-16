@@ -155,6 +155,10 @@ async function loadTelegramLinks() {
   const container = document.getElementById('linked-chats');
   try {
     const result = await apiFetch('/api/me/telegram-link');
+    if (result.chat_ids.length && telegramLinkPoll) {
+      clearInterval(telegramLinkPoll); telegramLinkPoll = null;
+      document.getElementById('telegram-link-code').textContent = 'Telegram успешно привязан.';
+    }
     container.innerHTML = result.chat_ids.length ? result.chat_ids.map(chat => `<span class="inline-flex items-center gap-2 mr-3">Чат ${chat} ${canEditWatchlists ? `<button data-unlink-chat="${chat}" class="text-rose-300 underline">Отключить</button>` : ''}</span>`).join('') : 'Привязанных чатов пока нет.';
   } catch (error) { container.innerHTML = '<span class="text-rose-300">Ошибка загрузки чатов.</span> <button onclick="loadTelegramLinks()" class="underline">Повторить</button>'; }
 }
@@ -163,6 +167,9 @@ async function createTelegramLink() {
   try {
     const result = await apiFetch('/api/me/telegram-link', {method: 'POST'});
     document.getElementById('telegram-link-code').textContent = result.instruction;
+    clearInterval(telegramLinkPoll);
+    telegramLinkPoll = setInterval(loadTelegramLinks, 5000);
+    setTimeout(() => { clearInterval(telegramLinkPoll); telegramLinkPoll = null; }, result.expires_in_seconds * 1000);
   } catch (error) { showToast(error.message, 'error'); }
 }
 
@@ -175,6 +182,8 @@ document.getElementById('linked-chats').addEventListener('click', async event =>
   } catch (error) { showToast(error.message, 'error'); }
 });
 
+let telegramLinkPoll = null;
+window.addEventListener('pagehide', () => clearInterval(telegramLinkPoll));
 loadWatchlists();
 loadTelegramLinks();
 </script>

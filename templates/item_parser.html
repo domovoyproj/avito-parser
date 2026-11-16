@@ -49,13 +49,17 @@
         </div>
       </div>
     </form>
+    <div id="item-error-panel" class="mt-3" hidden role="alert">
+      <p id="item-error-text" class="text-rose-500"></p>
+      <button id="item-retry" type="button" class="button-secondary mt-2" onclick="document.getElementById('item-parser-form').requestSubmit()">Повторить проверку</button>
+    </div>
   </div>
 
   <!-- LOADING SPINNER -->
   <div id="item-loading" class="hidden panel-card p-10 text-center space-y-2.5 font-mono">
     <div class="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
     <div class="font-bold text-white text-xs">Загрузка данных карточки...</div>
-    <p class="text-[11px] text-slate-500">Сбор фотографий в HD и характеристик</p>
+    <p class="text-[11px] text-slate-500">Откроется компактное окно поверх остальных. Если Авито покажет проверку, пройдите её в этом окне — ожидание до 5 минут.</p>
   </div>
 
   <!-- ITEM DETAILS VIEW -->
@@ -173,6 +177,7 @@ async function parseSingleItem(e) {
   e.preventDefault();
   const url = document.getElementById('item-url-input').value.trim();
   if (!url) return;
+    document.getElementById('item-error-panel').hidden = true;
 
   const btn = document.getElementById('btn-parse-item');
   const loading = document.getElementById('item-loading');
@@ -191,6 +196,9 @@ async function parseSingleItem(e) {
     renderItemCard(res.item);
     showToast('Карточка товара успешно распарсена!', 'success');
   } catch (err) {
+      document.getElementById('item-error-panel').hidden = false;
+      document.getElementById('item-error-text').textContent = err.message;
+      document.getElementById('item-retry').textContent = err.status === 429 ? 'Открыть новую ручную проверку' : 'Повторить проверку';
     showToast(err.message, 'error');
   } finally {
     btn.disabled = false;

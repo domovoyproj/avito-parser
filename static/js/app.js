@@ -163,7 +163,9 @@ async function apiFetch(url, options = {}) {
       const detail = Array.isArray(errData.detail)
         ? errData.detail.map(error => error.msg).filter(Boolean).join('; ')
         : errData.detail;
-      throw new Error(detail || `Ошибка сервера (${res.status})`);
+      const error = new Error(detail || `Ошибка сервера (${res.status})`);
+      error.status = res.status;
+      throw error;
     }
 
     // Check if JSON response

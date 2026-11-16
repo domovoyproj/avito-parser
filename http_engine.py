@@ -13,6 +13,8 @@ from proxy_manager import proxy_manager
 from parse_outcomes import extract_page, finalize
 from source_policy import SourceCooldown, page_url as build_page_url, source_policy
 from observability import configure_console_output
+from browser_session import CookieStore
+from notifications import queue_parser_alert
 
 configure_console_output()
 console = Console()
@@ -24,7 +26,7 @@ class AvitoHttpEngine:
         self.cookies_file = config.scraper.cookies_file
 
     def _get_headers(self) -> dict:
-        return {
+        headers = {
             "User-Agent": config.scraper.user_agent,
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
             "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
@@ -37,17 +39,19 @@ class AvitoHttpEngine:
             "Sec-Fetch-User": "?1",
             "Upgrade-Insecure-Requests": "1",
         }
+        if CookieStore(self.cookies_file).snapshot()['native_user_agent']:
+            for name in ('User-Agent', 'Sec-Ch-Ua', 'Sec-Ch-Ua-Mobile', 'Sec-Ch-Ua-Platform'):
+                headers.pop(name, None)  # curl_cffi supplies headers matching its TLS profile.
+        return headers
 
     def _load_cookies_dict(self) -> Dict[str, str]:
         """Загрузка кук из cookies.json для передачи в HTTP сессию"""
         cookies_dict = {}
         if config.scraper.save_cookies and self.cookies_file.exists():
             try:
-                with open(self.cookies_file, "r", encoding="utf-8") as f:
-                    cookies_list = json.load(f)
-                    for c in cookies_list:
-                        if isinstance(c, dict) and "name" in c and "value" in c:
-                            cookies_dict[c["name"]] = c["value"]
+                for c in CookieStore(self.cookies_file).snapshot()['cookies']:
+                    if isinstance(c, dict) and "name" in c and "value" in c:
+                        cookies_dict[c["name"]] = c["value"]
             except Exception:
                 pass
         return cookies_dict
@@ -62,6 +66,7 @@ class AvitoHttpEngine:
         result = ParseResult()
         all_items: List[AvitoItem] = []
         seen_ids = set()
+        generation = CookieStore(self.cookies_file).snapshot()['generation']
         cookies = self._load_cookies_dict()
 
         async with AsyncSession(impersonate="chrome131", proxy=self.proxy, cookies=cookies) as session:
@@ -78,6 +83,7 @@ class AvitoHttpEngine:
                         
                         if resp.status_code != 200:
                             if resp.status_code == 429 or resp.status_code == 403:
+                                CookieStore(self.cookies_file).reset(generation)
                                 result.outcome = "blocked"
                                 result.retry_after_seconds = await source_policy.block(resp.headers.get('Retry-After'))
                                 err_msg = f"HTTP {resp.status_code}: Источник на паузе. Дождитесь окончания ограничения или пройдите ручную проверку."
@@ -94,6 +100,7 @@ class AvitoHttpEngine:
                             result.errors.extend(extracted.errors)
                             break
                         if extracted.outcome == "blocked":
+                            CookieStore(self.cookies_file).reset(generation)
                             result.outcome = "blocked"
                             result.retry_after_seconds = await source_policy.block()
                             result.errors.extend(extracted.errors)
@@ -149,7 +156,10 @@ class AvitoHttpEngine:
         result.items = all_items
         result.total_found = len(all_items)
         result.elapsed_seconds = round(time.time() - start_time, 2)
-        return finalize(result)
+        result = finalize(result)
+        if result.outcome in ('blocked', 'error', 'partial'):
+            await queue_parser_alert(result.outcome, url, 'Авито ограничил доступ. Сессия очищена.' if result.outcome == 'blocked' else 'HTTP-сбор завершился с ошибкой. Проверьте историю в панели.')
+        return result
 
 
 http_engine = AvitoHttpEngine()

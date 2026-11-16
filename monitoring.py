@@ -102,6 +102,10 @@ class MonitoringService:
             logger.error("Проверка поиска #%s завершилась: %s", search.id, error_type)
             return result
         finally:
+            if error_type != 'CancelledError' and result.get('outcome') in ('blocked', 'error', 'partial'):
+                from notifications import queue_parser_alert
+                await queue_parser_alert(result['outcome'], search.url,
+                    'Поиск остановлен ограничением Авито.' if result['outcome'] == 'blocked' else 'Проверка поиска завершилась с ошибкой. Откройте историю проверок.', database=db)
             record = {
                 "run_id": uuid.uuid4().hex,
                 "search_id": search.id,

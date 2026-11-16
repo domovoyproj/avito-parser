@@ -15,7 +15,11 @@ import browser_engine
 
 
 class SourcePolicyTests(unittest.IsolatedAsyncioTestCase):
-    asyncSetUp = test_storage.StorageTests.asyncSetUp
+    async def asyncSetUp(self):
+        await test_storage.StorageTests.asyncSetUp(self)
+        cookies = patch.object(http_engine.config.scraper, 'cookies_file', self.root / 'cookies.json')
+        cookies.start()
+        self.addCleanup(cookies.stop)
 
     async def test_both_engines_cap_unique_items_across_pages(self):
         from contextlib import ExitStack

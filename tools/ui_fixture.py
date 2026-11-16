@@ -16,6 +16,7 @@ from models import AvitoItem, SearchQuery, SellerInfo, UserRole
 
 async def seed(root):
     configuration.ENV_FILE = root / '.env'
+    config.scraper.cookies_file = root / 'cookies.json'
     db.db_path = root / 'fixture.db'
     config.db_path = db.db_path
     config.export_dir = exporter.export_dir = root / 'exports'
@@ -37,6 +38,9 @@ async def seed(root):
 
     # Representative UI states, never market evidence or a live Telegram send.
     async with db.connection() as connection:
+        for i in (0, 1):
+            await connection.execute('INSERT INTO price_history(item_id,old_price,new_price,delta,created_at) VALUES (?,?,?,?,datetime("now"))',
+                                     (f'fixture-{i}', 20000+i*3500, 15000+i*3500, -5000))
         await connection.execute("UPDATE items SET deal_score=90,deal_grade='GEM',score_confidence=.83 WHERE id='fixture-0'")
         await connection.execute("UPDATE items SET deal_score=75,deal_grade='HOT',score_confidence=.67 WHERE id IN ('fixture-1','fixture-2','fixture-3')")
         await connection.commit()

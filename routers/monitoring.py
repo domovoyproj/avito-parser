@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, PositiveInt, model_validator
 from database import Database, db
 from config import config
 from models import AISettings, AvitoItem, SearchQuery, SellerInfo, User
@@ -15,7 +15,7 @@ from proxy_manager import proxy_manager
 from ai_scoring import deal_scoring_engine
 from monitoring import monitor_service
 from security import avito_url
-from auth_dependencies import require_admin
+from auth_dependencies import require_admin, require_auth
 from dependencies import get_database, get_monitoring_service
 from source_policy import SourcePolicy
 
@@ -88,9 +88,20 @@ async def api_get_price_drops(
     limit: int = Query(default=50, ge=1, le=200),
     db: Database = Depends(get_database),
     monitor_service=Depends(get_monitoring_service),
+    user: User = Depends(require_auth),
 ):
-    drops = await db.get_price_drops(limit=limit)
+    drops = await db.get_price_drops(limit=limit, user_id=user.id)
     return drops
+
+
+class ResetPriceDropsRequest(BaseModel):
+    history_ids: List[PositiveInt] = Field(min_length=1, max_length=200)
+
+
+@router.post('/api/price-drops/reset')
+async def api_reset_price_drops(payload: ResetPriceDropsRequest, db: Database = Depends(get_database), user: User = Depends(require_auth)):
+    count = await db.dismiss_price_drops(user.id, payload.history_ids)
+    return {'status': 'success', 'reset_count': count}
 
 
 # ==============================================================================
