@@ -15,9 +15,52 @@ from database import db
 from exporter import exporter
 from models import AvitoItem, SearchQuery, TelegramChatSettings
 from browser_engine import browser_engine
+from coordination import lease
 logger = logging.getLogger("AvitoTelegramBot")
 
 dp = Dispatcher()
+command_status = {'state': 'stopped'}
+
+
+async def run_command_polling():
+    """One command receiver shared by panel and standalone bot processes."""
+    while True:
+        token = config.telegram.bot_token
+        if not token:
+            command_status['state'] = 'not_configured'
+            await asyncio.sleep(5)
+            continue
+        try:
+            async with lease('telegram-command-polling', database=db) as acquired:
+                if acquired:
+                    bot = Bot(token=token)
+                    task = asyncio.create_task(dp.start_polling(bot, handle_signals=False,
+                        allowed_updates=dp.resolve_used_update_types(), close_bot_session=True, handle_as_tasks=False))
+                    command_status['state'] = 'running'
+                    try:
+                        while config.telegram.bot_token == token and not task.done():
+                            await asyncio.sleep(2)
+                        if task.done():
+                            await task
+                    finally:
+                        if not task.done():
+                            try:
+                                await asyncio.wait_for(dp.stop_polling(), timeout=10)
+                            except (RuntimeError, asyncio.TimeoutError):
+                                pass
+                        task.cancel()
+                        await asyncio.gather(task, return_exceptions=True)
+                        await bot.session.close()
+                        command_status['state'] = 'stopped'
+                else:
+                    command_status['state'] = 'another_process'
+        except asyncio.CancelledError:
+            command_status['state'] = 'stopped'
+            raise
+        except Exception as exc:
+            command_status['state'] = 'error'
+            logger.warning('Приём команд Telegram недоступен: %s', type(exc).__name__)
+        await asyncio.sleep(5)
 
 
 class AdminCommandMiddleware(BaseMiddleware):
@@ -509,7 +552,6 @@ async def run_bot():
         return
 
     await db.init_db()
-    bot = Bot(token=config.telegram.bot_token)
     
     logger.info("🟢 Telegram бот успешно подключен и слушает команды...")
     from outbox import outbox_worker
@@ -517,7 +559,7 @@ async def run_bot():
     delivery_task = asyncio.create_task(outbox_worker.run())
     await monitor_service.start()
     try:
-        await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
+        await run_command_polling()
     finally:
         delivery_task.cancel()
         try:

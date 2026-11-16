@@ -22,13 +22,16 @@
   <div class="panel-card p-4 space-y-3">
     <div class="flex items-center justify-between pb-2.5 border-b border-white/[0.06]">
       <h3 class="text-xs font-bold text-white uppercase tracking-wider font-mono">Журнал Изменений Стоимости</h3>
-      <span id="drops-total-count" class="text-[11px] text-slate-500 font-mono">Всего: 0</span>
+      <div class="flex items-center gap-3"><span id="drops-total-count" class="text-[11px] text-slate-500 font-mono">Всего: 0</span><button id="reset-drops" class="button-secondary" disabled>Сброс</button></div>
     </div>
+    <p class="workspace-muted text-xs">Отметьте записи для сброса. Они исчезнут из вашего журнала; история цен в карточках сохранится.</p>
+    <p id="drops-error" class="text-rose-500" hidden></p>
 
     <div class="overflow-x-auto">
       <table class="w-full text-left text-xs">
         <thead>
           <tr class="text-slate-500 font-mono text-[10px] uppercase tracking-wider border-b border-white/[0.06] pb-2">
+            <th class="py-2.5 px-3"><input id="drops-select-all" type="checkbox" aria-label="Выбрать все показанные записи"></th>
             <th class="py-2.5 px-3">Товар & Локация</th>
             <th class="py-2.5 px-3">Новая цена</th>
             <th class="py-2.5 px-3">Старая цена</th>
@@ -39,7 +42,7 @@
         </thead>
         <tbody id="price-drops-tbody" class="divide-y divide-white/[0.04] text-slate-300">
           <tr>
-            <td colspan="6" class="py-12 text-center text-slate-500 text-xs font-mono">Загрузка скидок...</td>
+            <td colspan="7" class="py-12 text-center text-slate-500 text-xs font-mono">Загрузка скидок...</td>
           </tr>
         </tbody>
       </table>
@@ -51,27 +54,43 @@
 
 {% block scripts %}
 <script>
+let displayedDrops = [];
+const selectedDrops = new Set();
+function updateDropSelection() {
+  const all = document.getElementById('drops-select-all');
+  all.checked = displayedDrops.length > 0 && selectedDrops.size === displayedDrops.length;
+  all.indeterminate = selectedDrops.size > 0 && selectedDrops.size < displayedDrops.length;
+  all.disabled = !canMutate() || !displayedDrops.length;
+  const reset = document.getElementById('reset-drops');
+  reset.disabled = !canMutate() || !selectedDrops.size;
+  reset.textContent = selectedDrops.size ? `Сброс (${selectedDrops.size})` : 'Сброс';
+}
 async function loadPriceDrops() {
   try {
+    document.getElementById('drops-error').hidden = true;
     const drops = await apiFetch('/api/price-drops?limit=100');
+    displayedDrops = drops;
+    selectedDrops.clear();
+    updateDropSelection();
     document.getElementById('drops-total-count').innerText = `Всего: ${drops.length}`;
     const badge = document.getElementById('drops-total-badge');
     if (badge) badge.innerText = `${drops.length} событий`;
     
     const tbody = document.getElementById('price-drops-tbody');
     if (!drops || drops.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="6" class="py-12 text-center text-slate-500 text-xs font-mono">Снижений цен пока не зафиксировано. Воркер мониторинга сверяет цены в каждом цикле.</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="7" class="py-12 text-center text-slate-500 text-xs font-mono">Новых снижений цен нет. Новые события появятся после проверки поисков.</td></tr>`;
       return;
     }
 
     tbody.innerHTML = drops.map(d => `
       <tr class="hover:bg-white/[0.02] transition font-mono">
+        <td class="py-2.5 px-3"><input type="checkbox" data-drop-id="${Number(d.history_id)}" aria-label="Выбрать ${htmlText(d.title)}" ${canMutate() ? '' : 'disabled'}></td>
         <td class="py-2.5 px-3">
           <div class="flex items-center gap-2.5">
-            <img src="${d.main_image || '/static/img/no-image.svg'}" class="w-9 h-9 rounded object-cover bg-slate-950 border border-white/[0.06] flex-shrink-0" onerror="this.src='/static/img/no-image.svg'">
+            <img src="${safeResourceUrl(d.main_image || '/static/img/no-image.svg')}" class="w-9 h-9 rounded object-cover bg-slate-950 border border-white/[0.06] flex-shrink-0" onerror="this.onerror=null;this.src='/static/img/no-image.svg'">
             <div class="min-w-0 max-w-sm">
-              <div class="font-sans font-semibold text-slate-200 text-xs truncate" title="${d.title}">${d.title}</div>
-              <div class="text-[10px] text-slate-500 truncate mt-0.5">${d.address || d.metro || 'Локация не указана'}</div>
+              <div class="font-sans font-semibold text-slate-200 text-xs truncate" title="${htmlText(d.title)}">${htmlText(d.title)}</div>
+              <div class="text-[10px] text-slate-500 truncate mt-0.5">${htmlText(d.address || d.metro || 'Локация не указана')}</div>
             </div>
           </div>
         </td>
@@ -91,7 +110,7 @@ async function loadPriceDrops() {
           ${formatDate(d.dropped_at)}
         </td>
         <td class="py-2.5 px-3 text-right whitespace-nowrap font-sans">
-          <a href="${d.url}" target="_blank" class="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-slate-900 hover:bg-slate-800 text-blue-400 border border-white/[0.08] text-xs font-medium transition">
+          <a href="${safeResourceUrl(d.url)}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-slate-900 hover:bg-slate-800 text-blue-400 border border-white/[0.08] text-xs font-medium transition">
             <span>Авито</span>
             <i data-lucide="external-link" class="w-3 h-3"></i>
           </a>
@@ -102,9 +121,38 @@ async function loadPriceDrops() {
     if (window.lucide) lucide.createIcons();
 
   } catch (err) {
-    console.error('Error loading price drops:', err);
+    const error = document.getElementById('drops-error');
+    error.hidden = false;
+    error.textContent = 'Не удалось загрузить журнал. ' + err.message;
+    document.getElementById('price-drops-tbody').innerHTML = '<tr><td colspan="7"><button class="button-secondary" onclick="loadPriceDrops()">Повторить загрузку</button></td></tr>';
   }
 }
+
+document.getElementById('price-drops-tbody').addEventListener('change', event => {
+  const input = event.target.closest('[data-drop-id]');
+  if (!input) return;
+  const id = Number(input.dataset.dropId);
+  if (input.checked) selectedDrops.add(id); else selectedDrops.delete(id);
+  updateDropSelection();
+});
+document.getElementById('drops-select-all').addEventListener('change', event => {
+  document.querySelectorAll('[data-drop-id]').forEach(input => {
+    input.checked = event.target.checked;
+    if (input.checked) selectedDrops.add(Number(input.dataset.dropId));
+    else selectedDrops.delete(Number(input.dataset.dropId));
+  });
+  updateDropSelection();
+});
+document.getElementById('reset-drops').addEventListener('click', async () => {
+  if (!selectedDrops.size || !canMutate()) return;
+  const button = document.getElementById('reset-drops');
+  button.disabled = true;
+  try {
+    await apiFetch('/api/price-drops/reset', {method:'POST', body:JSON.stringify({history_ids:[...selectedDrops]})});
+    await loadPriceDrops();
+  } catch (error) { showToast(error.message, 'error'); }
+  finally { updateDropSelection(); }
+});
 
 function initPriceDropsPage() {
   loadPriceDrops();

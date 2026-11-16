@@ -104,9 +104,13 @@ async def lifespan(app: FastAPI):
     outbox_task = asyncio.create_task(outbox_worker.run())
     from export_jobs import export_jobs
     export_task = asyncio.create_task(export_jobs.run())
+    from telegram_bot import run_command_polling
+    telegram_task = asyncio.create_task(run_command_polling())
     try:
         yield
     finally:
+        telegram_task.cancel()
+        await asyncio.gather(telegram_task, return_exceptions=True)
         export_task.cancel()
         await asyncio.gather(export_task, return_exceptions=True)
         for task in list(job_manager.tasks.values()):

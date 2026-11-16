@@ -9,6 +9,66 @@ from models import AvitoItem, SellerInfo
 
 class AvitoDataExtractor:
     @staticmethod
+    def image_url(value):
+        if not isinstance(value, str):
+            return None
+        value = value.strip()
+        if value.startswith('//'):
+            value = 'https:' + value
+        try:
+            parsed = urllib.parse.urlsplit(value)
+            if parsed.scheme not in ('http', 'https') or not parsed.hostname or parsed.username or parsed.password:
+                return None
+            if parsed.path.lower().endswith(('.svg', 'blank.gif')) or '/static/' in parsed.path or '/assets/' in parsed.path:
+                return None
+        except ValueError:
+            return None
+        return value
+
+    @classmethod
+    def image_urls(cls, value):
+        """Accept galleries, nested size maps and dimension keys of any resolution."""
+        if isinstance(value, str):
+            url = cls.image_url(value)
+            return [url] if url else []
+        if isinstance(value, list):
+            return list(dict.fromkeys(url for entry in value for url in cls.image_urls(entry)))
+        if isinstance(value, dict):
+            sizes = [(int(m[1]) * int(m[2]), child) for key, child in value.items()
+                     if (m := re.fullmatch(r'(\d+)x(\d+)', str(key)))]
+            for _, candidate in sorted(sizes, key=lambda entry: entry[0], reverse=True):
+                urls = cls.image_urls(candidate)
+                if urls:
+                    return urls[:1]
+            for key in ('sizes', 'urls', 'url', 'src', 'imageLarge', 'image', 'images', 'photos'):
+                urls = cls.image_urls(value.get(key))
+                if urls:
+                    return urls
+        return []
+
+    @classmethod
+    def dom_images(cls, root):
+        images = []
+        for element in root.select('img, picture source'):
+            candidates = []
+            for key in ('data-srcset', 'srcset'):
+                variants = []
+                for part in (element.get(key) or '').split(','):
+                    fields = part.strip().split()
+                    if fields:
+                        try:
+                            size = float(fields[1].rstrip('wx')) if len(fields) > 1 else 0
+                        except ValueError:
+                            size = 0
+                        variants.append((size, fields[0]))
+                candidates.extend(url for _, url in sorted(variants, key=lambda entry: entry[0], reverse=True))
+            candidates.extend(element.get(key) for key in ('data-src', 'data-url', 'src'))
+            chosen = next((url for candidate in candidates if (url := cls.image_url(candidate))), None)
+            if chosen and chosen not in images:
+                images.append(chosen)
+        return images
+
+    @staticmethod
     def clean_price(price_str: Optional[str]) -> Optional[int]:
         """Очистка строки цены и перевод в int (например '15 500  ₽/мес.' -> 15500)"""
         if not price_str:
@@ -133,29 +193,10 @@ class AvitoDataExtractor:
 
         # Фотографии
         images = []
-        raw_images = raw.get("images") or raw.get("previewImages") or raw.get("gallery") or raw.get("photos") or []
-        for img in raw_images:
-            if isinstance(img, dict):
-                img_url = (
-                    img.get("1280x960") or img.get("864x648") or img.get("640x480") or
-                    img.get("url") or img.get("src") or img.get("imageLarge") or img.get("image")
-                )
-                if img_url:
-                    images.append(img_url if img_url.startswith("http") else f"https:{img_url}")
-            elif isinstance(img, str):
-                images.append(img if img.startswith("http") else f"https:{img}")
-
-        if not images:
-            single_img = raw.get("image") or raw.get("mainImage") or raw.get("photo") or raw.get("preview")
-            if isinstance(single_img, str) and single_img:
-                images.append(single_img if single_img.startswith("http") else f"https:{single_img}")
-            elif isinstance(single_img, dict):
-                img_url = (
-                    single_img.get("1280x960") or single_img.get("864x648") or single_img.get("640x480") or
-                    single_img.get("url") or single_img.get("src")
-                )
-                if img_url:
-                    images.append(img_url if img_url.startswith("http") else f"https:{img_url}")
+        for field in ('images', 'previewImages', 'gallery', 'photos', 'image', 'mainImage', 'photo', 'preview'):
+            images = cls.image_urls(raw.get(field))
+            if images:
+                break
 
         main_image = images[0] if images else None
         # Продавец
@@ -310,16 +351,7 @@ class AvitoDataExtractor:
                 published_at = date_el.get_text(strip=True) if date_el else None
 
                 # Главное изображение и галерея
-                images: List[str] = []
-                for img in card.select("img[itemprop='image'], img[src*='img.avito.st'], img[src*='image'], img[src*='photo'], img[data-marker='item-photo'], img"):
-                    src = img.get("src") or img.get("data-src")
-                    if not src and img.get("srcset"):
-                        src = img.get("srcset").split()[0]
-                    if src:
-                        if not src.startswith("http"):
-                            src = f"https:{src}"
-                        if src not in images and not src.endswith("blank.gif") and "data:image" not in src:
-                            images.append(src)
+                images = cls.dom_images(card)
 
                 main_image = images[0] if images else None
 
@@ -412,9 +444,11 @@ class AvitoDataExtractor:
         """
         # Сначала пробуем вытащить данные из JSON
         json_items = cls.extract_from_initial_data(html)
+        json_item = None
         for it in json_items:
             if it.id == item_id or item_id in it.url:
-                if it.description:
+                json_item = it
+                if it.description and it.images:
                     return it
 
         # Если в JSON не всё или он не распарсился — парсим DOM
@@ -422,7 +456,7 @@ class AvitoDataExtractor:
 
         # Заголовок
         title_el = soup.select_one("h1[data-marker='item-view/title-info'], h1")
-        title = title_el.get_text(strip=True) if title_el else "Без названия"
+        title = title_el.get_text(strip=True) if title_el else (json_item.title if json_item else "Без названия")
 
         # Цена
         price_el = soup.select_one("[data-marker='item-view/item-price'], span[itemprop='price']")
@@ -445,16 +479,12 @@ class AvitoDataExtractor:
         address = address_el.get_text(strip=True) if address_el else None
 
         # Все фотографии
-        images: List[str] = []
-        for img in soup.select("div[data-marker='image-preview/item'] img, div[data-marker='image-frame/image-wrapper'] img"):
-            src = img.get("src") or img.get("data-url")
-            if src:
-                if not src.startswith("http"):
-                    src = f"https:{src}"
-                # Заменяем на высокое разрешение
-                high_res = re.sub(r'/\d+x\d+/', '/1280x960/', src)
-                if high_res not in images:
-                    images.append(high_res)
+        images = []
+        for gallery in soup.select("[data-marker^='image-preview'], [data-marker^='image-frame'], [data-marker='item-view/gallery']"):
+            images.extend(cls.dom_images(gallery))
+        for meta in soup.select('meta[property="og:image"], meta[name="twitter:image"]'):
+            images.extend(cls.image_urls(meta.get('content')))
+        images = list(dict.fromkeys(images)) or (json_item.images if json_item else [])
 
         # Характеристики
         params: Dict[str, str] = {}
@@ -494,11 +524,11 @@ class AvitoDataExtractor:
         return AvitoItem(
             id=item_id,
             title=title,
-            price=price,
+            price=price if price is not None else (json_item.price if json_item else None),
             price_string=price_str,
             url=url,
             address=address,
-            description=description,
+            description=description or (json_item.description if json_item else None),
             images=images,
             main_image=images[0] if images else None,
             params=params,

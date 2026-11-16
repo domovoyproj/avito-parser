@@ -102,6 +102,10 @@ class MonitoringService:
             logger.error("Проверка поиска #%s завершилась: %s", search.id, error_type)
             return result
         finally:
+            if error_type != 'CancelledError' and result.get('outcome') in ('blocked', 'error', 'partial'):
+                from notifications import queue_parser_alert
+                await queue_parser_alert(result['outcome'], search.url,
+                    'Поиск остановлен ограничением Авито.' if result['outcome'] == 'blocked' else 'Проверка поиска завершилась с ошибкой. Откройте историю проверок.', database=db)
             record = {
                 "run_id": uuid.uuid4().hex,
                 "search_id": search.id,
@@ -142,18 +146,22 @@ class MonitoringService:
         drop_count = 0
 
         try:
-            # Сначала пробуем быстрый HTTP-парсер, при неудаче — браузерный
+            # Visible mode keeps the same browser profile as manual verification.
             result = None
             engine_used = "http"
-            try:
-                result = await http_engine.parse_search(search.url, max_pages=50, max_items=search.max_items)
-            except Exception as e:
-                logger.debug(f"HTTP-парсер не смог обработать '{search.name}': {e}")
-                result = None
+            if not config.scraper.headless:
+                engine_used = 'browser'
+                result = await browser_engine.parse_search(search.url, max_pages=50, max_items=search.max_items)
+            else:
+                try:
+                    result = await http_engine.parse_search(search.url, max_pages=50, max_items=search.max_items)
+                except Exception as e:
+                    logger.debug(f"HTTP-парсер не смог обработать '{search.name}': {e}")
+                    result = None
 
             if result and result.outcome == "blocked" and not result.items:
-                return {"new": 0, "drops": 0, "errors": 1, "outcome": "blocked", "engine": "http", "retry_after_seconds": result.retry_after_seconds}
-            if not result or (not result.items and result.outcome != 'empty'):
+                return {"new": 0, "drops": 0, "errors": 1, "outcome": "blocked", "engine": engine_used, "retry_after_seconds": result.retry_after_seconds}
+            if engine_used == 'http' and (not result or (not result.items and result.outcome != 'empty')):
                 engine_used = "browser"
                 result = await browser_engine.parse_search(search.url, max_pages=50, max_items=search.max_items)
 

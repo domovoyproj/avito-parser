@@ -175,7 +175,32 @@ async def check_actions(page):
     page.once('dialog', lambda dialog: dialog.accept())
     assert (await click_response(f'button[onclick="deleteSearchItem({sid})"]', f'/api/searches/{sid}', 'DELETE')).ok
     assert not any(item['id'] == sid for item in await get('/api/searches'))
-    print('PASS: search edit/toggle/delete, both manual-access buttons, duplicate/reload/reuse/retry/error flows, settings round-trip, rule validation/XSS/zero/weights/toggle/delete and actual score recalculation')
+    await page.goto(BASE + '/price-drops')
+    await page.locator('[data-drop-id]').first.wait_for()
+    initial = await get('/api/price-drops?limit=100')
+    first_id = initial[0]['history_id']
+    await page.check(f'[data-drop-id="{first_id}"]')
+    assert (await click_response('#reset-drops', '/api/price-drops/reset')).ok
+    await page.locator(f'[data-drop-id="{first_id}"]').wait_for(state='detached')
+    remaining = await get('/api/price-drops?limit=100')
+    assert len(remaining) == len(initial) - 1
+    await page.reload()
+    await page.locator('[data-drop-id]').first.wait_for()
+    assert await page.locator(f'[data-drop-id="{first_id}"]').count() == 0
+    await page.check('#drops-select-all')
+    assert (await click_response('#reset-drops', '/api/price-drops/reset')).ok
+    await page.locator('[data-drop-id]').wait_for(state='detached')
+    assert (await get('/api/price-drops?limit=100')) == []
+
+    await page.goto(BASE + '/item-parser')
+    await page.route('**/api/parser/item', lambda route: route.fulfill(status=429,content_type='application/json',body='{"detail":"Fixture access check"}'))
+    await page.fill('#item-url-input', 'https://www.avito.ru/item_123')
+    await page.click('#btn-parse-item')
+    await page.get_by_text('Fixture access check', exact=True).first.wait_for()
+    assert await page.locator('#item-error-panel').is_visible()
+    assert await page.locator('#item-retry').text_content() == 'Открыть новую ручную проверку'
+    await page.unroute('**/api/parser/item')
+    print('PASS: search/settings/rules actions, access recovery, item limit, individual/all price-drop reset with reload, explicit item access error')
 
 
 if __name__ == '__main__':

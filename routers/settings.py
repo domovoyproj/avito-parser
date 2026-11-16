@@ -239,11 +239,10 @@ async def api_test_telegram(req: TestTelegramRequest):
 
 @router.post("/api/settings/clear-cookies")
 async def api_clear_cookies():
-    if config.scraper.cookies_file.exists():
-        config.scraper.cookies_file.unlink()
-        logger.info("🍪 Файл cookies.json успешно очищен")
-        return {"status": "success", "message": "Куки очищены"}
-    return {"status": "info", "message": "Файл кук не был создан"}
+    from browser_session import CookieStore
+    CookieStore(config.scraper.cookies_file).reset()
+    logger.info('Сессия Авито очищена; следующий браузер использует штатный User-Agent')
+    return {"status": "success", "message": "Сессия Авито сброшена"}
 
 
 # ==============================================================================

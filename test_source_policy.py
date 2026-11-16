@@ -15,7 +15,11 @@ import browser_engine
 
 
 class SourcePolicyTests(unittest.IsolatedAsyncioTestCase):
-    asyncSetUp = test_storage.StorageTests.asyncSetUp
+    async def asyncSetUp(self):
+        await test_storage.StorageTests.asyncSetUp(self)
+        cookies = patch.object(http_engine.config.scraper, 'cookies_file', self.root / 'cookies.json')
+        cookies.start()
+        self.addCleanup(cookies.stop)
 
     async def test_both_engines_cap_unique_items_across_pages(self):
         from contextlib import ExitStack
@@ -43,6 +47,7 @@ class SourcePolicyTests(unittest.IsolatedAsyncioTestCase):
                         stack.enter_context(patch.object(module, 'async_playwright', return_value=AsyncMock()))
                         stack.enter_context(patch.object(engine, '_check_and_handle_block', AsyncMock(return_value=False)))
                         stack.enter_context(patch.object(engine, '_emulate_human', AsyncMock()))
+                        stack.enter_context(patch.object(engine, '_load_search_photos', AsyncMock()))
                         stack.enter_context(patch.object(engine, '_save_cookies', AsyncMock()))
                         stack.enter_context(patch.object(module, 'extract_page', side_effect=[ParseResult(items=b, outcome='success') for b in batches]))
                         fetch = context.new_page.return_value.goto
@@ -69,6 +74,37 @@ class SourcePolicyTests(unittest.IsolatedAsyncioTestCase):
         browser.assert_not_awaited()
         self.assertEqual((result['outcome'], result['new'], result['retry_after_seconds']), ('blocked', 1, 900))
         self.assertIsNotNone(await self.db.get_item_by_id(item.id))
+
+    async def test_visible_monitor_uses_browser_without_invalidating_solved_session_via_http(self):
+        import monitoring
+        search = SearchQuery(name='Visible', url='https://www.avito.ru/fixture', max_items=73)
+        with patch.object(monitoring, 'db', self.db), patch.object(monitoring.config.scraper, 'headless', False), \
+                patch.object(monitoring.http_engine, 'parse_search', AsyncMock()) as http, \
+                patch.object(monitoring.browser_engine, 'parse_search', AsyncMock(return_value=ParseResult(outcome='empty'))) as browser:
+            result = await monitoring.MonitoringService()._check_search(search)
+        http.assert_not_awaited()
+        browser.assert_awaited_once_with(search.url, max_pages=50, max_items=73)
+        self.assertEqual((result['outcome'],result['engine']),('empty','browser'))
+
+    async def test_visible_403_waits_for_manual_check_instead_of_immediate_exit(self):
+        engine = browser_engine.AvitoBrowserEngine(headless=False)
+        context = AsyncMock()
+        context.new_page.return_value.goto.return_value = SimpleNamespace(status=403, headers={})
+        item = AvitoItem(id='solved',title='Fixture',url='https://www.avito.ru/fixture')
+        with patch.object(engine,'_create_context',AsyncMock(return_value=context)), \
+                patch.object(browser_engine,'async_playwright',return_value=AsyncMock()), \
+                patch.object(browser_engine,'source_policy',AsyncMock()) as policy, \
+                patch.object(browser_engine,'prepare_visible_window',AsyncMock()), \
+                patch.object(browser_engine.asyncio,'sleep',AsyncMock()), \
+                patch.object(engine,'_check_and_handle_block',AsyncMock(return_value=False)) as check, \
+                patch.object(engine,'_emulate_human',AsyncMock()), \
+                patch.object(engine,'_load_search_photos',AsyncMock()), \
+                patch.object(engine,'_save_cookies',AsyncMock()), \
+                patch.object(browser_engine,'extract_page',return_value=ParseResult(items=[item],outcome='success')):
+            result = await engine.parse_search(item.url)
+        check.assert_awaited_once()
+        policy.block.assert_not_awaited()
+        self.assertEqual(result.outcome,'success')
 
     async def test_pause_survives_restart_and_blocks_other_searches(self):
         policy = SourcePolicy(self.db)

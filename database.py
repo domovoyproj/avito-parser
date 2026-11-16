@@ -37,7 +37,7 @@ from repositories.feedback import FeedbackRepository
 from repositories.notification_events import NotificationEventsRepository
 
 
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 13
 
 
 class Database(
@@ -503,6 +503,7 @@ class Database(
                 created_at TEXT NOT NULL,
                 UNIQUE(user_id,name)
             )""")
+            await db.execute('CREATE TABLE IF NOT EXISTS price_drop_dismissals (user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, history_id INTEGER NOT NULL REFERENCES price_history(id) ON DELETE CASCADE, PRIMARY KEY(user_id, history_id))')
             for version in range(1, SCHEMA_VERSION + 1):
                 await db.execute(
                     "INSERT OR IGNORE INTO schema_migrations VALUES (?, ?)",

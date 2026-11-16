@@ -12,11 +12,13 @@ from config import config
 from models import AvitoItem, ParseResult
 from parser_core import AvitoDataExtractor
 from proxy_manager import proxy_manager
-from parse_outcomes import extract_page, finalize
+from parse_outcomes import extract_page, extract_detail, finalize
 from access_guard import access_challenge
 from source_policy import SourceCooldown, page_url as build_page_url, source_policy
 from observability import configure_console_output
 from browser_window import WINDOW_WIDTH, WINDOW_HEIGHT, prepare_visible_window
+from browser_session import CookieStore, DetailParseError
+from notifications import queue_parser_alert
 
 configure_console_output()
 console = Console()
@@ -52,15 +54,17 @@ class AvitoBrowserEngine:
             ]
         )
 
+        session_state = CookieStore(self.cookies_file).snapshot()
         context = await browser.new_context(
             **({'viewport': {'width': 1920, 'height': 1080}} if self.headless else {'no_viewport': True}),
-            user_agent=config.scraper.user_agent,
+            **({} if session_state['native_user_agent'] else {'user_agent': config.scraper.user_agent}),
             locale="ru-RU",
             timezone_id="Europe/Moscow",
             geolocation={"latitude": 55.7558, "longitude": 37.6173}, # Москва
             permissions=["geolocation"],
             color_scheme="dark"
         )
+        context._avito_generation = session_state['generation']
         if not self.headless:
             # Includes popup windows created later by the page, not only our first tab.
             context.on('page', prepare_visible_window)
@@ -80,11 +84,9 @@ class AvitoBrowserEngine:
         """)
 
         # Загрузка сохраненных кук
-        if config.scraper.save_cookies and self.cookies_file.exists():
+        if config.scraper.save_cookies and session_state['cookies']:
             try:
-                with open(self.cookies_file, "r", encoding="utf-8") as f:
-                    cookies = json.load(f)
-                    await context.add_cookies(cookies)
+                await context.add_cookies(session_state['cookies'])
             except Exception:
                 pass
 
@@ -95,10 +97,8 @@ class AvitoBrowserEngine:
         if not config.scraper.save_cookies:
             return
         try:
-            self.cookies_file.parent.mkdir(parents=True, exist_ok=True)
             cookies = await context.cookies()
-            with open(self.cookies_file, "w", encoding="utf-8") as f:
-                json.dump(cookies, f, ensure_ascii=False, indent=2)
+            CookieStore(self.cookies_file).save(cookies, getattr(context, '_avito_generation', 'legacy'))
         except Exception:
             pass
 
@@ -125,7 +125,25 @@ class AvitoBrowserEngine:
         except Exception:
             pass
 
-    async def _check_and_handle_block(self, page: Page, access_callback=None, challenge_state=None, page_num=1) -> bool:
+    async def _load_search_photos(self, page: Page, limit=None):
+        """Bring each collected card into view so lazy image URLs enter the DOM."""
+        cards = page.locator('[data-marker="item"], div[data-item-id]')
+        deadline = time.monotonic() + 30
+        try:
+            count = await cards.count()
+            for index in range(min(count, limit if limit is not None else count)):
+                if time.monotonic() >= deadline:
+                    break
+                card = cards.nth(index)
+                try:
+                    await card.scroll_into_view_if_needed(timeout=1500)
+                    await card.locator('img[src^="https://"], img[src^="http://"], img[src^="//"], source[srcset]').first.wait_for(state='attached', timeout=800)
+                except Exception:
+                    continue
+        except Exception:
+            return
+
+    async def _check_and_handle_block(self, page: Page, access_callback=None, challenge_state=None, page_num=1, detail_url=None) -> bool:
         """
         Проверка на реальную блокировку IP (429) или вызов капчи.
         Если запущен в видимом режиме (headless=False) — дает пользователю время решить капчу.
@@ -140,6 +158,8 @@ class AvitoBrowserEngine:
         kind = access_challenge(content, url, title)
         if not kind:
             return False
+        self._reset_session(page.context)
+        await queue_parser_alert('access', page.url, 'Авито показывает CAPTCHA или ограничение доступа. Требуется ручная проверка.')
         state = challenge_state if challenge_state is not None else {}
         state['count'] = state.get('count', 0) + 1
         repeated = state['count'] >= 3
@@ -163,7 +183,9 @@ class AvitoBrowserEngine:
             try:
                 current = await page.content()
                 # Absence of a title alone is not proof: the search must parse again.
-                if not access_challenge(current, page.url, await page.title()) and extract_page(current).outcome in ('success', 'empty'):
+                valid = (extract_detail(current, detail_url)
+                         if detail_url else extract_page(current).outcome in ('success', 'empty'))
+                if not access_challenge(current, page.url, await page.title()) and valid:
                     if access_callback:
                         await access_callback({'status': 'running', 'waiting_until': None, 'access_message': '', 'access_kind': None})
                     await self._save_cookies(page.context)
@@ -173,6 +195,14 @@ class AvitoBrowserEngine:
         if access_callback:
             await access_callback({'status': 'blocked', 'waiting_until': None, 'access_message': 'Проверка не пройдена за 5 минут. Автоматические попытки остановлены. Полученные объявления доступны в результатах сбора.'})
         return True
+
+    def _reset_session(self, context):
+        # Current CAPTCHA stays usable; its context is discarded when closed.
+        # The next launch gets empty cookies, fresh storage and Chromium's native UA.
+        generation = getattr(context, '_avito_generation', 'legacy')
+        new_generation = CookieStore(self.cookies_file).reset(generation)
+        if new_generation is not None:
+            context._avito_generation = new_generation
 
     def _build_page_url(self, base_url: str, page_num: int) -> str:
         """Корректное добавление параметра страницы в URL Авито"""
@@ -219,7 +249,8 @@ class AvitoBrowserEngine:
                         try:
                             await source_policy.wait(manual=manual_recovery)
                             response = await page.goto(page_url, wait_until="domcontentloaded", timeout=config.scraper.timeout_ms)
-                            if response and response.status in (403, 429) and not manual_recovery:
+                            if response and response.status in (403, 429) and self.headless:
+                                self._reset_session(context)
                                 result.outcome = 'blocked'
                                 result.retry_after_seconds = await source_policy.block(response.headers.get('retry-after'))
                                 result.errors.append(f'HTTP {response.status}: доступ ограничен')
@@ -234,15 +265,23 @@ class AvitoBrowserEngine:
                                 break
 
                             await self._emulate_human(page)
+                            await self._load_search_photos(page, None if max_items is None else max_items - len(all_items))
                             html = await page.content()
 
                             # Извлечение объявлений
                             extracted = extract_page(html)
+                            if response and response.status in (403, 429) and extracted.outcome not in ('success', 'empty'):
+                                self._reset_session(context)
+                                result.outcome = 'blocked'
+                                result.retry_after_seconds = await source_policy.block(response.headers.get('retry-after'))
+                                result.errors.append(f'HTTP {response.status}: доступ ограничен')
+                                break
                             result.source = extracted.source
                             if extracted.outcome == 'error':
                                 result.errors.extend(extracted.errors)
                                 break
                             if extracted.outcome == "blocked":
+                                self._reset_session(context)
                                 result.outcome = "blocked"
                                 result.retry_after_seconds = await source_policy.block()
                                 result.errors.extend(extracted.errors)
@@ -296,19 +335,27 @@ class AvitoBrowserEngine:
                         delay = random.uniform(config.scraper.page_delay_min, config.scraper.page_delay_max)
                         await asyncio.sleep(delay)
 
-                await self._save_cookies(context)
+                if result.outcome != 'blocked' and not result.errors:
+                    await self._save_cookies(context)
             finally:
                 await context.browser.close()
 
         result.items = all_items
         result.total_found = len(all_items)
         result.elapsed_seconds = round(time.time() - start_time, 2)
-        return finalize(result)
+        result = finalize(result)
+        if result.outcome in ('blocked', 'error', 'partial'):
+            await queue_parser_alert(result.outcome, url, 'Авито ограничил доступ.' if result.outcome == 'blocked' else 'Сбор завершился с ошибкой. Проверьте историю в панели.')
+        return result
 
-    async def parse_item_detail(self, item_url: str) -> Optional[AvitoItem]:
+    async def parse_item_detail(self, item_url: str, manual=False, raise_errors=False) -> Optional[AvitoItem]:
         """
         Детальный сбор карточки конкретного объявления со всеми фото и характеристиками.
         """
+        if manual and self.headless:
+            visible = type(self)(headless=False, proxy=self.proxy_str)
+            visible.cookies_file = self.cookies_file
+            return await visible.parse_item_detail(item_url, manual=True, raise_errors=raise_errors)
         async with async_playwright() as p:
             context = await self._create_context(p)
             page = await context.new_page()
@@ -316,31 +363,54 @@ class AvitoBrowserEngine:
                 await prepare_visible_window(page)
 
             try:
-                await source_policy.wait()
+                await source_policy.wait(manual=manual)
                 response = await page.goto(item_url, wait_until="domcontentloaded", timeout=config.scraper.timeout_ms)
-                if response and response.status in (403, 429):
+                if response and response.status in (404, 410):
+                    raise DetailParseError(404, 'Объявление удалено или недоступно по этой ссылке.')
+                if response and response.status in (403, 429) and not manual:
+                    self._reset_session(context)
                     await source_policy.block(response.headers.get('retry-after'))
-                    return None
+                    raise DetailParseError(429, 'Авито ограничил доступ. Сессия сброшена; откройте ручную проверку.')
                 await asyncio.sleep(random.uniform(1.5, 3.0))
 
-                if await self._check_and_handle_block(page):
+                if await self._check_and_handle_block(page, detail_url=item_url):
                     await source_policy.block()
-                    return None
+                    raise DetailParseError(429, 'Проверка Авито не завершена. Сессия сброшена; повторите в новом окне.')
+
+                if response and response.status >= 400:
+                    if response.status in (403, 429):
+                        # A successfully solved challenge may retain the initial response status.
+                        if not extract_detail(await page.content(), item_url):
+                            self._reset_session(context)
+                            await source_policy.block(response.headers.get('retry-after'))
+                            raise DetailParseError(429, 'Авито ограничил доступ. Сессия сброшена; повторите проверку.')
+                    else:
+                        raise DetailParseError(502, f'Авито вернул ошибку HTTP {response.status}. Попробуйте позже.')
 
                 await self._emulate_human(page)
                 html = await page.content()
-                await self._save_cookies(context)
-
-                match = re.search(r'_(\d+)(?:\?|$)', item_url)
-                item_id = match.group(1) if match else "unknown"
-
-                item = AvitoDataExtractor.parse_item_detail_page(html, item_id, item_url)
+                item = extract_detail(html, item_url)
                 if item:
-                    await source_policy.success()
+                    await source_policy.success(manual=manual)
+                    await self._save_cookies(context)
+                else:
+                    raise DetailParseError(422, 'Страница открылась, но данные карточки не распознаны. Проверьте ссылку на конкретное объявление.')
                 return item
 
+            except DetailParseError as exc:
+                await queue_parser_alert('access' if exc.status_code == 429 else 'parser_error', item_url, str(exc))
+                if raise_errors:
+                    raise
+                return None
+            except SourceCooldown as exc:
+                if raise_errors:
+                    raise DetailParseError(429, str(exc)) from exc
+                return None
             except Exception as e:
                 console.print(f"[red]Ошибка парсинга карточки: {type(e).__name__}[/red]")
+                await queue_parser_alert('parser_error', item_url, 'Не удалось загрузить карточку: ' + type(e).__name__)
+                if raise_errors:
+                    raise DetailParseError(502, 'Не удалось загрузить страницу Авито. Проверьте соединение и повторите.') from e
                 return None
             finally:
                 await context.browser.close()
