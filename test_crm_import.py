@@ -150,5 +150,12 @@ class TelegramImportTests(unittest.IsolatedAsyncioTestCase):
         buttons=build_item_keyboard('8517716531',self.url).inline_keyboard
         self.assertTrue(any(b.callback_data=='crm:import:8517716531' for row in buttons for b in row))
 
+    async def test_manual_deals_can_share_a_supplier_website(self):
+        # A generic shop/profile URL is not the identity of an individual listing.
+        data={'title':'Manual purchase','source_url':'https://example.com/shop'}
+        first=await db.crm_save_deal(self.uid,data)
+        second=await db.crm_save_deal(self.uid,data)
+        self.assertNotEqual(first['id'],second['id'])
+
 
 if __name__=='__main__':unittest.main()

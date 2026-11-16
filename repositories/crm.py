@@ -84,8 +84,7 @@ async def find_source(connection, item_id, source_url, include_archived=False):
         ('' if include_archived else ' WHERE archived=0') + ' ORDER BY archived,id')).fetchall()
     for row in rows:
         other = listing_reference(row['source_url'])
-        if ((item_id and row['item_id'] == item_id) or (ref and other and ref[0] == other[0]) or
-                (source_url and row['source_url'] == source_url)):
+        if (item_id and row['item_id'] == item_id) or (ref and other and ref[0] == other[0]):
             return row['id']
     return None
 
