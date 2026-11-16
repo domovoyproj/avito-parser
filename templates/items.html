@@ -185,6 +185,7 @@
 
     </div>
     <section class="resale-calculator" aria-labelledby="calculator-title">
+      <a id="item-crm-link" class="button-secondary" href="/crm" data-write>Добавить в CRM</a>
       <h4 id="calculator-title" class="form-section-title">Есть ли смысл в перепродаже?</h4>
       <p class="form-hint">Укажите свою цену продажи и все расходы. Расчёт остаётся в этой карточке и не изменяет объявление.</p>
       <div class="calculator-fields">
@@ -713,6 +714,7 @@ async function openItemModal(itemId) {
 
     document.getElementById('modal-item-id').innerText = `ID: ${item.id}`;
     document.getElementById('modal-item-title').innerText = item.title;
+    document.getElementById('item-crm-link').href = '/crm?item=' + encodeURIComponent(item.id);
     document.getElementById('modal-item-price').innerText = formatPrice(item.price);
     document.getElementById('calc-buy').value = item.price ?? '';
     document.getElementById('calc-sale').value = '';

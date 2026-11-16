@@ -19,6 +19,8 @@ from coordination import lease
 logger = logging.getLogger("AvitoTelegramBot")
 
 dp = Dispatcher()
+from crm_bot import router as crm_router
+dp.include_router(crm_router)
 command_status = {'state': 'stopped'}
 
 
@@ -66,6 +68,15 @@ async def run_command_polling():
 class AdminCommandMiddleware(BaseMiddleware):
     async def __call__(self, handler, event, data):
         sender = getattr(event, 'from_user', None)
+        # Only CRM handlers accept linked teammates; legacy admin commands stay restricted.
+        state = data.get('state')
+        current_state = await state.get_state() if state else None
+        crm_event = ((isinstance(event, types.Message) and event.text and event.text.split()[0].split('@')[0] == '/crm') or
+                     (isinstance(event, types.CallbackQuery) and (event.data or '').startswith('crm:')) or
+                     (isinstance(event, types.Message) and current_state == 'CRMInput:command' and
+                      (not (event.text or '').startswith('/') or (event.text or '') == '/cancel')))
+        if crm_event:
+            return await handler(event, data)
         if isinstance(event, types.Message) and event.text and event.text.split()[0].split('@')[0] == '/link':
             if sender and event.chat.type == 'private' and event.chat.id == sender.id:
                 return await handler(event, data)
@@ -98,6 +109,7 @@ async def cmd_link(message: types.Message):
 
 def get_main_keyboard() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(text="CRM перепродажи", callback_data="crm:menu"))
     builder.row(
         InlineKeyboardButton(text="🔍 Мои поиски", callback_data="list_searches"),
         InlineKeyboardButton(text="➕ Добавить поиск", callback_data="add_search_help")

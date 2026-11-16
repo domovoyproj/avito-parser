@@ -1,6 +1,7 @@
 """SQLite-backed at-least-once delivery; a crash after send may duplicate it."""
 import asyncio
 import hashlib
+import html
 import hmac
 import json
 import logging
@@ -49,7 +50,7 @@ class OutboxWorker:
     async def deliver(self, job):
         try:
             payload = json.loads(job['payload'])
-            if isinstance(payload, dict) and payload.get('type') in ('access', 'parser_error') and job['channel'] == 'telegram':
+            if isinstance(payload, dict) and payload.get('type') in ('access', 'parser_error', 'crm_reminder') and job['channel'] == 'telegram':
                 await self.deliver_system(job, payload)
                 return
             item = AvitoItem.model_validate(payload['item'])
@@ -151,20 +152,27 @@ class OutboxWorker:
         retry = min(3600, 30 * (2 ** min(job['attempts'], 7)))
         try:
             chat = int(job['destination'])
-            if chat not in config.telegram.admin_chat_ids:
+            task = await self.db.crm_reminder(chat, payload) if payload.get('type') == 'crm_reminder' else None
+            is_crm = payload.get('type') == 'crm_reminder'
+            if (is_crm and not task) or (not is_crm and chat not in config.telegram.admin_chat_ids):
                 await self.finish(job, 'skipped', error='recipient removed', attempted=False)
                 return
             if not config.telegram.bot_token:
                 await self.finish(job, 'pending', 300, 'telegram disabled', attempted=False)
                 return
-            if time.time() - job['created_at'] > 900:
+            if not is_crm and time.time() - job['created_at'] > 900:
                 await self.finish(job, 'skipped', error='expired alert', attempted=False)
                 return
             settings = await self.db.get_chat_settings(chat)
             if quiet_now(settings, datetime.now().hour):
                 await self.finish(job, 'pending', 300, 'quiet hours', attempted=False)
                 return
-            message = {'chat_id': chat, 'text': format_parser_alert(payload), 'parse_mode': 'HTML'}
+            text = ('<b>CRM · Срок задачи наступил</b>\n' + html.escape(task['title']) +
+                    ('\nСделка: ' + html.escape(task['deal_title'] or '') if task['deal_id'] else '') +
+                    f"\nЗадача №{task['id']} · /crm tasks") if is_crm else format_parser_alert(payload)
+            message = {'chat_id': chat, 'text': text, 'parse_mode': 'HTML'}
+            if is_crm:
+                message['reply_markup'] = {'inline_keyboard': [[{'text': 'Задачи CRM', 'callback_data': 'crm:tasks:0'}]]}
             if avito_url(payload.get('url', '')):
                 message['reply_markup'] = {'inline_keyboard': [[{'text': 'Страница на Авито', 'url': payload['url']}]]}
             async with httpx.AsyncClient(timeout=15) as client:
@@ -182,6 +190,7 @@ class OutboxWorker:
     async def run(self):
         while True:
             try:
+                await self.db.crm_queue_reminders()
                 await self.drain()
             except Exception as exc:
                 logging.getLogger('AvitoOutbox').error('Outbox cycle failed: %s', type(exc).__name__)
