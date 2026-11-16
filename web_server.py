@@ -258,6 +258,10 @@ async def page_items(request: Request):
 async def page_watchlists(request: Request):
     return await render_auth_page("watchlists")(request)
 
+@app.get('/crm', response_class=HTMLResponse)
+async def page_crm(request: Request):
+    return await render_auth_page('crm')(request)
+
 @app.get('/notifications', response_class=HTMLResponse)
 async def page_notifications(request: Request):
     return await render_auth_page('notifications', admin_only=True)(request)
@@ -313,6 +317,13 @@ from routers.monitoring import router as monitoring_router
 app.include_router(monitoring_router)
 from routers.watchlists import router as watchlists_router
 app.include_router(watchlists_router)
+from routers.crm import router as crm_router
+from crm_models import CRMError
+app.include_router(crm_router)
+
+@app.exception_handler(CRMError)
+async def crm_error_handler(request, exc):
+    return JSONResponse(status_code=exc.status, content={'detail': str(exc)})
 from routers.feedback import router as feedback_router
 app.include_router(feedback_router)
 from routers.notifications import router as notifications_router

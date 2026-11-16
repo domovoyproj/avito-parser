@@ -28,6 +28,7 @@
       <a href="/items" class="nav-item {% if page == 'items' %}active{% endif %}"><i data-lucide="gallery-vertical-end"></i><span>Находки</span><span id="sidebar-total-items-pill" class="nav-count"></span></a>
       <a href="/monitoring" class="nav-item {% if page == 'monitoring' %}active{% endif %}"><i data-lucide="radar"></i><span>Поиски</span><span id="sidebar-active-searches-pill" class="nav-count"></span></a>
       <a href="/watchlists" class="nav-item {% if page == 'watchlists' %}active{% endif %}"><i data-lucide="bookmark"></i><span>Мои списки</span></a>
+      <a href="/crm" class="nav-item {% if page == 'crm' %}active{% endif %}"><i data-lucide="briefcase-business"></i><span>CRM перепродажи</span></a>
       <a href="/price-drops" class="nav-item {% if page == 'price_drops' %}active{% endif %}"><i data-lucide="trending-down"></i><span>Снижения цен</span></a>
       {% if user and user.role == 'admin' %}<a href="/notifications" class="nav-item {% if page == 'notifications' %}active{% endif %}"><i data-lucide="bell-ring"></i><span>Уведомления</span></a>{% endif %}
       <div class="nav-label">Инструменты</div>

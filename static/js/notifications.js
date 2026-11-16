@@ -59,9 +59,9 @@
     const body = node('tbody');
     events.forEach(event => {
       const row = node('tr'), title = node('td');
-      const typeLabel = {price_drop:'Снижение цены',new:'Новая находка',access:'Проверка доступа',parser_error:'Ошибка парсера'}[event.type] || 'Уведомление';
+      const typeLabel = {price_drop:'Снижение цены',new:'Новая находка',access:'Проверка доступа',parser_error:'Ошибка парсера',crm_reminder:'Задача CRM'}[event.type] || 'Уведомление';
       title.append(node('strong', event.title), node('small', `${event.search_name} · ${typeLabel}`));
-      if (!['access','parser_error'].includes(event.type)) title.append(node('small', formatPrice(event.price)));
+      if (!['access','parser_error','crm_reminder'].includes(event.type)) title.append(node('small', formatPrice(event.price)));
       const state = node('td'); state.append(node('span', labels[event.status] || event.status, `delivery-state ${event.status}`));
       if (event.last_error) state.append(node('small', reasons[event.last_error] || (/^HTTP \d{3}$/.test(event.last_error) ? event.last_error : 'Проверьте настройки подключения')));
       if (event.status === 'pending' && event.available_at * 1000 > Date.now()) state.append(node('small', 'Повтор после ' + stamp(event.available_at)));

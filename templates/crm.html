@@ -1,0 +1,22 @@
+{% extends 'base.html' %}
+{% block title %}CRM перепродажи — Avito Max{% endblock %}
+{% block head %}<link rel="stylesheet" href="/static/css/crm.css?v=1">{% endblock %}
+{% block content %}
+<div class="crm-page">
+  <header class="crm-heading"><div><p class="crm-eyebrow">Общая база команды</p><h1>CRM перепродажи</h1><p>От закупки до продажи. Товары, расходы, контакты и задачи в одном месте.</p></div><div class="crm-actions"><a class="button-secondary" href="/api/crm/export">Экспорт CSV</a><button class="button-primary" id="crm-create" data-write>Новая сделка</button></div></header>
+  <div id="crm-error" role="alert" hidden></div>
+  <section id="crm-metrics" class="crm-metrics" aria-label="Итоги CRM"><p>Загрузка показателей…</p></section>
+  <nav class="crm-tabs" aria-label="Разделы CRM"><button data-tab="deals" aria-current="page">Сделки и склад</button><button data-tab="contacts">Контакты</button><button data-tab="tasks">Задачи</button><button data-tab="telegram">Telegram</button></nav>
+  <section id="crm-deals" class="crm-panel">
+    <div class="crm-filters"><label>Поиск<input id="crm-query" type="search" placeholder="Товар, номер или серийный номер"></label><label>Этап<select id="crm-stage"><option value="">Все этапы</option></select></label><label>Ответственный<select id="crm-owner"><option value="">Вся команда</option></select></label><label class="crm-check"><input id="crm-archive" type="checkbox"> Архив</label><button id="crm-search" class="button-secondary">Найти</button></div>
+    <div id="crm-pipeline" class="crm-pipeline" aria-label="Этапы сделок"></div>
+    <div id="crm-deal-list" aria-live="polite">Загрузка сделок…</div>
+    <div class="crm-pagination"><button id="crm-prev" class="button-secondary">Назад</button><span id="crm-count"></span><button id="crm-next" class="button-secondary">Далее</button></div>
+  </section>
+  <section id="crm-contacts" class="crm-panel" hidden><div class="crm-section-title"><h2>Поставщики и покупатели</h2><button id="crm-contact-add" class="button-primary" data-write>Добавить контакт</button></div><div id="crm-contact-list"></div></section>
+  <section id="crm-tasks" class="crm-panel" hidden><div class="crm-section-title"><h2>Задачи команды</h2><button id="crm-task-add" class="button-primary" data-write>Добавить задачу</button></div><p>Время показано в часовом поясе вашего браузера. В срок задачи бот уведомит ответственного с привязанным Telegram.</p><label class="crm-check"><input id="crm-done" type="checkbox"> Показать завершённые</label><div id="crm-task-list"></div></section>
+  <section id="crm-telegram" class="crm-panel" hidden><h2>Та же CRM в Telegram</h2><p>Каждый сотрудник привязывает свой личный чат в разделе <a href="/watchlists">«Мои списки»</a>. После привязки отправьте боту <code>/crm</code>.</p><p>Бот показывает общие сделки, итоги, контакты и задачи. Через меню можно добавить закупку, расход, продажу или задачу. Команда <code>/crm help</code> показывает команды изменения карточек и контактов.</p><p>Администратор и оператор могут изменять данные. Пользователь с ролью «Только просмотр» видит CRM без возможности изменений. Непривязанные чаты и группы не имеют доступа.</p></section>
+</div>
+<dialog id="crm-dialog" aria-labelledby="crm-dialog-title"><header class="crm-section-title"><h2 id="crm-dialog-title"></h2><button id="crm-close" class="button-secondary" aria-label="Закрыть карточку">Закрыть</button></header><div id="crm-dialog-error" role="alert" hidden></div><div id="crm-dialog-body"></div></dialog>
+{% endblock %}
+{% block scripts %}<script src="/static/js/crm.js?v=1"></script>{% endblock %}

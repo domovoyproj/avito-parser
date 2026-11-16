@@ -24,7 +24,7 @@ class NotificationEventsRepository:
             except (ValueError, TypeError, AttributeError):
                 payload, item = {}, {}
             events.append({key: row[key] for key in ('id', 'channel', 'status', 'attempts', 'created_at', 'available_at', 'last_error')} | {
-                'title': str(payload.get('message') or item.get('title') or 'Объявление недоступно')[:200],
+                'title': str(payload.get('message') or (f"Задача CRM №{payload.get('task_id')}" if payload.get('type') == 'crm_reminder' else '') or item.get('title') or 'Объявление недоступно')[:200],
                 'price': item.get('price'), 'score': item.get('deal_score'),
                 'url': payload.get('url') or item.get('url'), 'type': payload.get('type'),
                 'search_name': str(payload.get('search_name') or 'Поиск')[:100]})
