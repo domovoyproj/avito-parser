@@ -51,6 +51,19 @@ async def run(destination):
                 await page.keyboard.press('Escape')
                 assert await page.locator('#mobile-menu').evaluate('(el)=>document.activeElement===el')
         await page.set_viewport_size({'width': 1440, 'height': 1000})
+        # Redacted saved keys leave the input empty; testing must still reach the API.
+        await page.goto('http://127.0.0.1:18765/settings')
+        await page.wait_for_function("document.getElementById('set-ai-model').value !== ''")
+        await page.select_option('#set-ai-provider', 'openai')
+        await page.fill('#set-ai-api-key', '')
+        await page.route('**/api/ai/test', lambda route: route.fulfill(
+            content_type='application/json',
+            body='{"status":"success","message":"Сохранённый ключ проверен","model":"gpt-4o-mini"}'))
+        async with page.expect_request('**/api/ai/test') as request_info:
+            await page.click('#btn-test-ai')
+        assert (await request_info.value).post_data_json['api_key'] == ''
+        await page.wait_for_function("!document.getElementById('btn-test-ai').classList.contains('pointer-events-none')")
+        await page.unroute('**/api/ai/test')
         await page.goto('http://127.0.0.1:18765/')
         await page.click('.theme-switch')
         await page.reload()

@@ -15,7 +15,9 @@ from proxy_manager import proxy_manager
 from parse_outcomes import extract_page, finalize
 from access_guard import access_challenge
 from source_policy import SourceCooldown, page_url as build_page_url, source_policy
+from observability import configure_console_output
 
+configure_console_output()
 console = Console()
 
 
