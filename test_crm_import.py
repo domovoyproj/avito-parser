@@ -141,7 +141,7 @@ class TelegramImportTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(CRMError):await db.crm_save_deal(viewer,{'title':'No','source_url':self.url},reuse_source=True)
 
     async def test_link_validation_multiple_and_button_lengths(self):
-        for url in ('https://avito.ru.evil.test/item_8517716531','https://avito.ru@evil.test/item_8517716531','javascript:alert(1)','https://www.avito.ru/moskva/telefony'):
+        for url in ('https://avito.ru.evil.test/item_8517716531','https://avito.ru@evil.test/item_8517716531','javascript:alert(1)','https://www.avito.ru/moskva/telefony',self.url+' '+self.url):
             self.assertIsNone(listing_reference(url))
         await self.send(self.url+' https://www.avito.ru/test_9000000001')
         self.assertIn('несколько',self.answer.call_args.args[0])

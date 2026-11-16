@@ -5,7 +5,7 @@ from security import avito_url
 
 
 def listing_reference(value):
-    if not isinstance(value, str) or len(value) > 2000 or not avito_url(value):
+    if not isinstance(value, str) or len(value) > 2000 or re.search(r'\s', value) or not avito_url(value):
         return None
     parts = urlsplit(value)
     path = unquote(parts.path).rstrip('/')
